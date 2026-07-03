@@ -1,0 +1,78 @@
+{
+  "name": "aria-assistant",
+  "version": "2.1.0",
+  "description": "ARIA — AI Business Assistant",
+  "main": "electron/main.cjs",
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "scripts": {
+    "dev": "concurrently -k \"vite\" \"wait-on tcp:127.0.0.1:5173 && electron .\"",
+    "dev:renderer": "vite",
+    "typecheck": "tsc --noEmit",
+    "build:renderer": "vite build",
+    "build": "vite build && electron-builder --win --x64",
+    "build:dir": "vite build && electron-builder --win --x64 --dir",
+    "start": "electron ."
+  },
+  "build": {
+    "appId": "com.aria.assistant",
+    "productName": "ARIA",
+    "copyright": "Copyright © 2026",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron/**/*",
+      "dist-renderer/**/*",
+      "assets/**/*"
+    ],
+    "win": {
+      "icon": "assets/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "ARIA"
+    }
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.3",
+    "concurrently": "^10.0.3",
+    "electron": "^42.4.1",
+    "electron-builder": "^26.15.3",
+    "typescript": "^6.0.3",
+    "vite": "^8.1.3",
+    "wait-on": "^9.0.10"
+  },
+  "dependencies": {
+    "dompurify": "^3.4.11",
+    "electron-updater": "^6.8.9",
+    "highlight.js": "^11.11.1",
+    "mammoth": "^1.12.0",
+    "marked": "^18.0.5",
+    "pdfjs-dist": "^6.1.200",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
+    "zustand": "^5.0.14"
+  }
+}

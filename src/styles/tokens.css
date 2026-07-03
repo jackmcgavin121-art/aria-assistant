@@ -1,0 +1,25 @@
+/* Design tokens — spec §7. Single accent (indigo), 8px-based spacing. */
+:root {
+  --bg: #ffffff; --bg2: #f7f7f9; --bg3: #eeeff3; --bg4: #e4e5ea; --bg5: #d2d3db;
+  --tx: #101014; --tx2: #3a3a48; --tx3: #71718a; --tx4: #a6a6bb;
+  --bd: #e7e7ee; --bd2: #d9d9e2;
+  --ac: #4f46e5; --ac-h: #4338ca; --ac-l: #eef0ff; --ac-m: #dadcfb; --ac-tx: #ffffff;
+  --ok: #15a34a; --ok-bg: #f0fdf4; --err: #dc2626; --err-bg: #fef2f2;
+  --warn: #b45309; --warn-bg: #fffbeb; --info: #1d4ed8; --info-bg: #eff6ff;
+  --r1: 6px; --r2: 9px; --r3: 13px; --r4: 18px; --rp: 999px;
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px; --s7: 48px;
+  --sb-w: 248px; --top-h: 54px;
+  --shadow: 0 1px 3px rgba(16, 16, 20, 0.08), 0 4px 16px rgba(16, 16, 20, 0.06);
+  --shadow-lg: 0 8px 40px rgba(16, 16, 20, 0.18);
+  --font: "Inter", "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --mono: "Cascadia Code", "Consolas", ui-monospace, monospace;
+}
+[data-theme="dark"] {
+  --bg: #0e0e12; --bg2: #16161c; --bg3: #1d1d25; --bg4: #262630; --bg5: #34343f;
+  --tx: #ececf3; --tx2: #b6b6c9; --tx3: #7c7c97; --tx4: #55556c;
+  --bd: #22222b; --bd2: #2e2e3a;
+  --ac: #6d63f3; --ac-h: #8079ff; --ac-l: #1a1838; --ac-m: #272452;
+  --ok-bg: #10231a; --err-bg: #2a1616; --warn-bg: #271d0d; --info-bg: #131c2e;
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.4), 0 4px 16px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 8px 40px rgba(0, 0, 0, 0.55);
+}
