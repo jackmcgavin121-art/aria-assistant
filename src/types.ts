@@ -2,6 +2,7 @@
 // the whole AppState is exported/imported as a single backup file.
 
 export type ViewId =
+  | "home"
   | "chat"
   | "agents"
   | "knowledge"
@@ -56,6 +57,8 @@ export interface AgentTask {
   convId?: string;
   blockers?: string[];
   autoDiscovered?: boolean;
+  /** Live web sources the agent consulted while executing. */
+  webSources?: WebSource[];
 }
 
 export interface AgentMemory {
@@ -92,6 +95,12 @@ export interface Agent {
   taskQueue: AgentTask[];
   memory: AgentMemory;
   workday: AgentWorkday;
+  /** Optional model override; falls back to the global default. */
+  model?: string;
+  /** Last time the background autonomy scheduler ran a cycle for this agent. */
+  lastAutonomyRunAt?: number;
+  /** Last time an automatic weekly report was generated for this agent. */
+  lastWeeklyReportAt?: number;
 }
 
 export interface WebSource {
@@ -116,6 +125,12 @@ export interface Message {
   stopped?: boolean;
   webSources?: WebSource[];
   attachments?: Attachment[];
+  /** Parsed document text kept with the message so edit/regenerate re-sends it. */
+  attachmentText?: string;
+  /** Attached images (kept only when small enough to persist sanely). */
+  images?: { mediaType: string; base64: string }[];
+  /** Real token usage reported by the API for this reply. */
+  tokens?: { in: number; out: number };
   /** Team mode: parallel responses keyed by agent id. */
   teamResponses?: { agentId: string; content: string; error?: string }[];
 }
@@ -132,6 +147,8 @@ export interface Conversation {
   updatedAt: number;
   /** Conversations an agent started itself (proactive/autonomy). */
   agentInitiated?: boolean;
+  /** Soft delete: set when moved to trash; purged after 30 days. */
+  deletedAt?: number;
 }
 
 export interface Folder {
@@ -298,7 +315,19 @@ export interface Settings {
   convListWidth: number; // px
   closeToTray: boolean;
   notificationsEnabled: boolean;
+  /** Last app version the user has seen — drives the "what's new" note after updates. */
+  lastSeenVersion?: string;
 }
+
+/** Real token usage accumulated from API responses: month (YYYY-MM) → model → totals. */
+export interface UsageBucket {
+  in: number;
+  out: number;
+  cacheRead: number;
+  cacheWrite: number;
+  calls: number;
+}
+export type UsageLog = Record<string, Record<string, UsageBucket>>;
 
 export interface AppState {
   schema: 2;
@@ -324,6 +353,7 @@ export interface AppState {
   folders: Record<string, Folder>;
   artifacts: Record<string, Artifact>;
   settings: Settings;
+  usage: UsageLog;
   /** Untouched fields carried over from a v1 (ariaApp_v4) import so nothing is lost. */
   _legacy?: Record<string, unknown>;
 }

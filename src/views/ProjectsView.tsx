@@ -95,7 +95,7 @@ function ProjectWorkspace({ projectId, onBack }: { projectId: string; onBack: ()
     useStore.setState({ projects: { ...s.projects, [projectId]: { ...s.projects[projectId], ...patchObj } } });
   };
 
-  const projConvs = Object.values(conversations).filter((c) => c.projectId === projectId).sort((a, b) => b.updatedAt - a.updatedAt);
+  const projConvs = Object.values(conversations).filter((c) => c.projectId === projectId && !c.deletedAt).sort((a, b) => b.updatedAt - a.updatedAt);
   const projTasks = tasks.filter((t) => t.projectId === projectId);
   const projArtifacts = Object.values(artifacts).filter((a) => a.projectId === projectId);
 
@@ -193,7 +193,7 @@ export function ProjectsView() {
       </div>
       <div className="card-grid">
         {list.map((p) => {
-          const convs = Object.values(conversations).filter((c) => c.projectId === p.id).length;
+          const convs = Object.values(conversations).filter((c) => c.projectId === p.id && !c.deletedAt).length;
           const open = tasks.filter((t) => t.projectId === p.id && !t.done).length;
           return (
             <div key={p.id} className="card clickable" onClick={() => setOpenId(p.id)} style={{ borderTop: `3px solid ${p.color}` }}>

@@ -293,3 +293,37 @@ button { font-family: inherit; }
 
 /* ---------- palette keyboard selection ---------- */
 .list-row.sel { border-color: var(--ac); background: var(--ac-l); }
+
+/* ---------- home dashboard ---------- */
+.dash { padding: var(--s5); overflow: auto; height: 100%; }
+.dash-head { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--s3); flex-wrap: wrap; margin-bottom: var(--s4); }
+.dash-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--s3); }
+.dash-grid .card h3 { display: flex; align-items: center; gap: var(--s2); }
+.dash-task { display: flex; align-items: center; gap: var(--s2); padding: 5px 0; font-size: 13px; border-radius: var(--r1); }
+.dash-task:hover { background: var(--bg3); }
+.dash-alert { display: flex; gap: var(--s2); padding: 6px 4px; cursor: pointer; border-radius: var(--r1); align-items: flex-start; }
+.dash-alert:hover { background: var(--bg3); }
+
+/* ---------- in-thread find ---------- */
+.find-bar {
+  position: absolute; top: 8px; right: 16px; z-index: 60; display: flex; align-items: center; gap: var(--s1);
+  background: var(--bg); border: 1px solid var(--bd2); border-radius: var(--r2); box-shadow: var(--shadow-lg); padding: var(--s1) var(--s2);
+}
+.find-bar .input { width: 200px; padding: 4px 8px; font-size: 13px; }
+.find-bar .hint { min-width: 56px; text-align: center; }
+@keyframes findflash { 0% { background: var(--ac-l); } 100% { background: transparent; } }
+.find-flash { animation: findflash 1.4s ease-out; border-radius: var(--r2); }
+
+/* ---------- jump to latest ---------- */
+.jump-latest {
+  position: absolute; bottom: 120px; right: 24px; z-index: 40;
+  background: var(--bg); color: var(--tx); border: 1px solid var(--bd2); border-radius: var(--rp);
+  padding: 6px 14px; font-size: 12.5px; cursor: pointer; box-shadow: var(--shadow-lg);
+}
+.jump-latest:hover { border-color: var(--ac); color: var(--ac); }
+
+/* ---------- usage table ---------- */
+.usage-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.usage-table th { text-align: right; color: var(--tx3); font-weight: 600; padding: 4px 8px; border-bottom: 1px solid var(--bd); }
+.usage-table th:first-child, .usage-table td:first-child { text-align: left; }
+.usage-table td { text-align: right; padding: 4px 8px; border-bottom: 1px solid var(--bd); }

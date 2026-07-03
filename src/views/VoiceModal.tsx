@@ -4,6 +4,8 @@ import { Modal } from "../components/Modal";
 import { sendMessage } from "../features/chat";
 import { addTask } from "../features/tasks";
 import { completeOnce } from "../api/anthropic";
+import { speak, stopSpeaking } from "../lib/tts";
+import { markdownToText } from "../lib/markdown";
 
 // Speech recognition is feature-detected: Chromium's engine is not available
 // inside Electron, so this degrades honestly instead of pretending to listen.
@@ -17,14 +19,16 @@ export function speechSupported(): boolean {
 }
 
 export function VoiceModal({ onClose }: { onClose: () => void }) {
-  const [mode, setMode] = useState<"ptt" | "meeting">("ptt");
+  const [mode, setMode] = useState<"ptt" | "meeting" | "handsfree">("ptt");
   const [listening, setListening] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [extracting, setExtracting] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
   const [hasWhisperKey, setHasWhisperKey] = useState(false);
+  const [hfPhase, setHfPhase] = useState<"idle" | "listening" | "thinking" | "speaking">("idle");
   const recRef = useRef<any>(null);
   const mediaRef = useRef<{ rec: MediaRecorder; chunks: Blob[] } | null>(null);
+  const hfActive = useRef(false);
   const toast = useStore((s) => s.toast);
   const hasApiKey = useStore((s) => s.hasApiKey);
   const supported = speechSupported();
@@ -32,6 +36,8 @@ export function VoiceModal({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     void window.aria.secrets.has("openaiApiKey").then(setHasWhisperKey);
     return () => {
+      hfActive.current = false;
+      stopSpeaking();
       recRef.current?.stop?.();
       mediaRef.current?.rec.stream.getTracks().forEach((t) => t.stop());
     };
@@ -94,6 +100,97 @@ export function VoiceModal({ onClose }: { onClose: () => void }) {
     setListening(false);
   };
 
+  /* ------- hands-free loop: listen → send → speak reply → listen again ------- */
+
+  const hfStop = () => {
+    hfActive.current = false;
+    stopSpeaking();
+    recRef.current?.stop?.();
+    if (mediaRef.current?.rec.state !== "inactive") mediaRef.current?.rec.stop();
+    setHfPhase("idle");
+  };
+
+  const hfHandle = async (text: string) => {
+    if (!text.trim() || !hfActive.current) return;
+    setTranscript(text.trim());
+    setHfPhase("thinking");
+    await sendMessage(text.trim());
+    if (!hfActive.current) return;
+    const st = useStore.getState();
+    const list = st.activeConvId ? st.messages[st.activeConvId] ?? [] : [];
+    const last = list[list.length - 1];
+    const reply = last?.role === "assistant" ? markdownToText(last.content) : "";
+    if (reply) {
+      setHfPhase("speaking");
+      speak(reply, st.settings.ttsVoice, st.settings.ttsRate, () => {
+        if (hfActive.current) hfListen();
+      });
+    } else {
+      hfListen();
+    }
+  };
+
+  const hfListen = () => {
+    if (!hfActive.current) return;
+    setHfPhase("listening");
+    if (supported) {
+      // Browser engine: ends on silence by itself — fully hands-free.
+      const Rec = getRecognition()!;
+      const rec = new Rec();
+      rec.continuous = false;
+      rec.interimResults = false;
+      rec.lang = navigator.language || "en-US";
+      rec.onresult = (e: any) => {
+        let text = "";
+        for (let i = 0; i < e.results.length; i++) text += e.results[i][0].transcript + " ";
+        void hfHandle(text);
+      };
+      rec.onerror = () => hfStop();
+      recRef.current = rec;
+      rec.start();
+    } else {
+      // Whisper path has no silence detection: talk, then press "Done talking".
+      void (async () => {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          const rec = new MediaRecorder(stream, { mimeType: "audio/webm" });
+          const chunks: Blob[] = [];
+          rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+          rec.onstop = async () => {
+            stream.getTracks().forEach((t) => t.stop());
+            if (!hfActive.current) return;
+            const blob = new Blob(chunks, { type: "audio/webm" });
+            if (blob.size < 2000) {
+              hfListen();
+              return;
+            }
+            setHfPhase("thinking");
+            const res = await window.aria.stt.transcribe(await blob.arrayBuffer(), "audio/webm");
+            if (res.ok) void hfHandle(res.text);
+            else {
+              toast(res.error, "err");
+              hfStop();
+            }
+          };
+          mediaRef.current = { rec, chunks };
+          rec.start();
+        } catch (e: any) {
+          toast("Microphone unavailable: " + e.message, "err");
+          hfStop();
+        }
+      })();
+    }
+  };
+
+  const hfStart = () => {
+    if (!hasApiKey) {
+      toast("Add your Anthropic API key in Settings first.", "err");
+      return;
+    }
+    hfActive.current = true;
+    hfListen();
+  };
+
   const extractActions = async () => {
     if (!transcript.trim() || !hasApiKey) return;
     setExtracting(true);
@@ -120,10 +217,10 @@ export function VoiceModal({ onClose }: { onClose: () => void }) {
   return (
     <Modal
       title="Voice"
-      onClose={() => { stop(); onClose(); }}
+      onClose={() => { stop(); hfStop(); onClose(); }}
       wide
       footer={
-        transcript.trim() ? (
+        transcript.trim() && mode !== "handsfree" ? (
           <>
             <button className="btn" onClick={() => { navigator.clipboard.writeText(transcript); toast("Copied", "ok"); }}>⧉ Copy</button>
             {mode === "meeting" && <button className="btn" disabled={extracting || !hasApiKey} onClick={() => void extractActions()}>{extracting ? "Extracting…" : "☑ Extract action items"}</button>}
@@ -148,21 +245,67 @@ export function VoiceModal({ onClose }: { onClose: () => void }) {
       ) : (
         <div>
           <div className="tabs">
-            <button className={"tab" + (mode === "ptt" ? " on" : "")} onClick={() => { stop(); stopWhisper(); setMode("ptt"); }}>🎙 Push to talk</button>
-            <button className={"tab" + (mode === "meeting" ? " on" : "")} onClick={() => { stop(); stopWhisper(); setMode("meeting"); }}>📼 Meeting mode</button>
+            <button className={"tab" + (mode === "ptt" ? " on" : "")} onClick={() => { stop(); stopWhisper(); hfStop(); setMode("ptt"); }}>🎙 Push to talk</button>
+            <button className={"tab" + (mode === "meeting" ? " on" : "")} onClick={() => { stop(); stopWhisper(); hfStop(); setMode("meeting"); }}>📼 Meeting mode</button>
+            <button className={"tab" + (mode === "handsfree" ? " on" : "")} onClick={() => { stop(); stopWhisper(); setMode("handsfree"); }}>🔁 Hands-free</button>
           </div>
-          <div style={{ textAlign: "center", padding: 12 }}>
-            <button
-              className={"btn " + (listening ? "danger" : "primary")}
-              disabled={transcribing}
-              onClick={supported ? (listening ? stop : start) : listening ? stopWhisper : () => void startWhisper()}
-            >
-              {transcribing ? "Transcribing…" : listening ? "■ Stop" : mode === "ptt" ? "🎙 Start dictating" : "📼 Start recording"}
-            </button>
-            {listening && <p className="hint" style={{ marginTop: 8 }}>{supported ? "Listening…" : "Recording… (transcribed when you stop)"}</p>}
-            {!supported && <p className="hint" style={{ marginTop: 4 }}>Using Whisper transcription</p>}
-          </div>
-          <textarea className="ta" rows={8} placeholder="Transcript appears here…" value={transcript} onChange={(e) => setTranscript(e.target.value)} />
+          {mode === "handsfree" ? (
+            <div style={{ textAlign: "center", padding: 12 }}>
+              {hfPhase === "idle" && (
+                <>
+                  <button className="btn primary" onClick={hfStart}>🔁 Start hands-free conversation</button>
+                  <p className="hint" style={{ marginTop: 8, maxWidth: 420, marginInline: "auto" }}>
+                    Talk to ARIA out loud: your speech is sent to the active conversation and the reply is read back,
+                    then the mic reopens.
+                    {!supported && " (Whisper mode: press “Done talking” after each turn — it has no silence detection.)"}
+                  </p>
+                </>
+              )}
+              {hfPhase === "listening" && (
+                <>
+                  <div className="big" style={{ fontSize: 32 }}>🎙</div>
+                  <p>Listening{supported ? "… (pauses end your turn)" : "…"}</p>
+                  {!supported && (
+                    <button className="btn primary" onClick={() => mediaRef.current?.rec.state !== "inactive" && mediaRef.current?.rec.stop()}>
+                      ✅ Done talking
+                    </button>
+                  )}
+                  <button className="btn danger sm" style={{ marginLeft: 8 }} onClick={hfStop}>■ End</button>
+                </>
+              )}
+              {hfPhase === "thinking" && (
+                <>
+                  <div className="big" style={{ fontSize: 32 }}>💭</div>
+                  <p>Thinking…</p>
+                  <button className="btn danger sm" onClick={hfStop}>■ End</button>
+                </>
+              )}
+              {hfPhase === "speaking" && (
+                <>
+                  <div className="big" style={{ fontSize: 32 }}>🔊</div>
+                  <p>Speaking…</p>
+                  <button className="btn sm" onClick={() => { stopSpeaking(); hfListen(); }}>⏭ Skip to listening</button>
+                  <button className="btn danger sm" style={{ marginLeft: 8 }} onClick={hfStop}>■ End</button>
+                </>
+              )}
+              {transcript && <p className="hint" style={{ marginTop: 10 }}>Last heard: “{transcript.slice(0, 140)}”</p>}
+            </div>
+          ) : (
+            <>
+              <div style={{ textAlign: "center", padding: 12 }}>
+                <button
+                  className={"btn " + (listening ? "danger" : "primary")}
+                  disabled={transcribing}
+                  onClick={supported ? (listening ? stop : start) : listening ? stopWhisper : () => void startWhisper()}
+                >
+                  {transcribing ? "Transcribing…" : listening ? "■ Stop" : mode === "ptt" ? "🎙 Start dictating" : "📼 Start recording"}
+                </button>
+                {listening && <p className="hint" style={{ marginTop: 8 }}>{supported ? "Listening…" : "Recording… (transcribed when you stop)"}</p>}
+                {!supported && <p className="hint" style={{ marginTop: 4 }}>Using Whisper transcription</p>}
+              </div>
+              <textarea className="ta" rows={8} placeholder="Transcript appears here…" value={transcript} onChange={(e) => setTranscript(e.target.value)} />
+            </>
+          )}
         </div>
       )}
     </Modal>

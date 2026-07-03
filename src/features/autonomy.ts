@@ -95,7 +95,7 @@ export async function runAutonomyCycle(agentId: string): Promise<void> {
     `OPEN QUEUE: ${agent.taskQueue.filter((t) => t.status !== "completed").map((t) => t.title).join("; ") || "empty"}`;
 
   const res = await completeOnce({
-    model: s.model,
+    model: agent.model || s.model,
     maxTokens: 600,
     system,
     tools: AUTONOMY_TOOLS,
@@ -218,11 +218,115 @@ export function proactiveScan() {
   }
 }
 
+/* ---------------- background autonomy scheduler ---------------- */
+
+/** Agents with autonomy on think for themselves every AUTONOMY_INTERVAL_HOURS. */
+const AUTONOMY_INTERVAL_HOURS = 6;
+
+/**
+ * One scheduler tick: run an autonomy cycle for at most ONE due agent
+ * (spreads API cost across ticks instead of bursting).
+ */
+export async function autonomyTick(): Promise<void> {
+  const s = useStore.getState();
+  if (!s.hasApiKey) return;
+  const due = s.agents.find(
+    (a) =>
+      a.autonomyLevel !== "off" &&
+      a.goals.length > 0 &&
+      Date.now() - (a.lastAutonomyRunAt ?? 0) > AUTONOMY_INTERVAL_HOURS * 3600e3
+  );
+  if (!due) return;
+  // Stamp before running so a failing call can't retry-loop every tick.
+  patchAgent(due.id, (a) => ({ ...a, lastAutonomyRunAt: Date.now() }));
+  await runAutonomyCycle(due.id);
+}
+
+/* ---------------- automatic weekly reports ---------------- */
+
+function startOfWeek(now = Date.now()): number {
+  const d = new Date(now);
+  const day = (d.getDay() + 6) % 7; // Monday = 0
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - day);
+  return d.getTime();
+}
+
+/**
+ * From Monday 08:00, generate one report per proactive agent that actually
+ * did something last week (max 2 per tick to spread cost).
+ */
+export async function weeklyReportTick(): Promise<void> {
+  const s = useStore.getState();
+  if (!s.hasApiKey) return;
+  const weekStart = startOfWeek();
+  if (Date.now() < weekStart + 8 * 3600e3) return; // not yet Monday morning
+  const weekAgo = Date.now() - 7 * 864e5;
+
+  const due = s.agents
+    .filter(
+      (a) =>
+        a.proactiveMode &&
+        (a.lastWeeklyReportAt ?? 0) < weekStart &&
+        (a.workday.tasksCompleted.some((t) => t.ts >= weekAgo) ||
+          a.workday.initiativesStarted.some((t) => t.ts >= weekAgo) ||
+          a.goals.length > 0)
+    )
+    .slice(0, 2);
+
+  for (const agent of due) {
+    patchAgent(agent.id, (a) => ({ ...a, lastWeeklyReportAt: Date.now() }));
+    const report = await generateWeeklyReport(agent.id);
+    if (!report) continue;
+    const st = useStore.getState();
+    const convId = uid();
+    useStore.setState({
+      conversations: {
+        ...st.conversations,
+        [convId]: {
+          id: convId,
+          title: `📊 Weekly report — ${agent.name}`.slice(0, 60),
+          agentId: agent.id,
+          pinned: false,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          agentInitiated: true,
+        },
+      },
+      messages: {
+        ...st.messages,
+        [convId]: [
+          { id: uid(), role: "user", content: "**Automatic weekly report** (generated from real logged activity).", ts: Date.now() },
+          { id: uid(), role: "assistant", content: report, ts: Date.now(), agentId: agent.id },
+        ],
+      },
+    });
+    useStore.getState().addAlert({
+      agentId: agent.id,
+      type: "info",
+      title: `${agent.name}: weekly report is ready`,
+      body: report.slice(0, 180),
+      convId,
+    });
+  }
+}
+
 let proactiveTimer: number | undefined;
+let autonomyKickoff: number | undefined;
 export function initProactiveChecks() {
   window.clearInterval(proactiveTimer);
+  window.clearTimeout(autonomyKickoff);
   proactiveScan();
-  proactiveTimer = window.setInterval(proactiveScan, 30 * 60_000);
+  proactiveTimer = window.setInterval(() => {
+    proactiveScan();
+    void autonomyTick();
+    void weeklyReportTick();
+  }, 30 * 60_000);
+  // First background think shortly after boot (don't compete with startup).
+  autonomyKickoff = window.setTimeout(() => {
+    void autonomyTick();
+    void weeklyReportTick();
+  }, 90_000);
 }
 
 /* ---------------- weekly report ---------------- */
@@ -252,7 +356,7 @@ export async function generateWeeklyReport(agentId: string): Promise<string | nu
 
   const { system } = buildSystemPrompt(s, agent, null);
   const res = await completeOnce({
-    model: s.model,
+    model: agent.model || s.model,
     maxTokens: 1500,
     system,
     messages: [

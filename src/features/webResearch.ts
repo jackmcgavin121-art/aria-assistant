@@ -72,18 +72,11 @@ export interface ResearchResult {
 }
 
 /**
- * If web research mode is on and the message needs live info, search + read
- * pages and return an augmented API prompt plus source badges. Returns null
- * to send the message unmodified.
+ * Raw research pass: search (or read a direct URL) and return the fetched
+ * page context + sources. Null when nothing usable came back.
  */
-export async function maybeRunWebResearch(userText: string, force = false): Promise<ResearchResult | null> {
-  const s = useStore.getState();
-  if (!force && !s.settings.webResearchMode) return null;
-
+export async function runWebResearch(userText: string): Promise<{ context: string; sources: WebSource[] } | null> {
   const directUrl = userText.match(URL_RE)?.[0];
-  if (!force && !directUrl && !shouldWebSearch(userText)) return null;
-
-  s.toast("Researching the web…", "info");
   const sources: WebSource[] = [];
   const chunks: string[] = [];
 
@@ -113,14 +106,34 @@ export async function maybeRunWebResearch(userText: string, force = false): Prom
     console.warn("web research failed", e);
   }
 
-  if (!chunks.length) {
+  if (!chunks.length) return null;
+  return { context: chunks.join("\n\n"), sources };
+}
+
+/**
+ * If web research mode is on and the message needs live info, search + read
+ * pages and return an augmented API prompt plus source badges. Returns null
+ * to send the message unmodified.
+ */
+export async function maybeRunWebResearch(userText: string, force = false): Promise<ResearchResult | null> {
+  const s = useStore.getState();
+  if (!force && !s.settings.webResearchMode) return null;
+
+  const directUrl = userText.match(URL_RE)?.[0];
+  if (!force && !directUrl && !shouldWebSearch(userText)) return null;
+
+  s.toast("Researching the web…", "info");
+  const r = await runWebResearch(userText);
+
+  if (!r) {
     s.toast("Web research found nothing usable — answering from model knowledge.", "info");
     return null;
   }
+  const { context, sources } = r;
 
   const prompt =
     `${userText}\n\n---\nLIVE WEB RESEARCH (fetched just now — treat as current ground truth, cite sources by number when used):\n\n` +
-    chunks.join("\n\n") +
+    context +
     `\n---\nAnswer the user's message using this research where relevant. Note anything the sources disagree on.`;
   return { prompt, sources };
 }

@@ -69,12 +69,13 @@ const PERSIST_KEYS: (keyof AppState)[] = [
   "folders",
   "artifacts",
   "settings",
+  "usage",
   "_legacy",
 ];
 
 export const useStore = create<Store>((set, get) => ({
   ...defaultState(),
-  view: "chat",
+  view: "home",
   bootStatus: "loading",
   hasApiKey: false,
   streamingConvId: null,
@@ -104,6 +105,32 @@ export const useStore = create<Store>((set, get) => ({
     if (get().settings.notificationsEnabled) osNotify(a.title, a.body);
   },
 }));
+
+/** Accumulate real API token usage (reported by the API itself) into the monthly log. */
+export function recordUsage(
+  model: string,
+  u: { in?: number; out?: number; cacheRead?: number; cacheWrite?: number }
+) {
+  if (!u.in && !u.out && !u.cacheRead && !u.cacheWrite) return;
+  const s = useStore.getState();
+  const month = new Date().toISOString().slice(0, 7);
+  const cur = s.usage[month]?.[model] ?? { in: 0, out: 0, cacheRead: 0, cacheWrite: 0, calls: 0 };
+  useStore.setState({
+    usage: {
+      ...s.usage,
+      [month]: {
+        ...(s.usage[month] ?? {}),
+        [model]: {
+          in: cur.in + (u.in ?? 0),
+          out: cur.out + (u.out ?? 0),
+          cacheRead: cur.cacheRead + (u.cacheRead ?? 0),
+          cacheWrite: cur.cacheWrite + (u.cacheWrite ?? 0),
+          calls: cur.calls + 1,
+        },
+      },
+    },
+  });
+}
 
 export function serializeState(s: Store): string {
   const out: Record<string, unknown> = {};
@@ -191,6 +218,21 @@ export async function boot(): Promise<void> {
         } catch (e) {
           console.warn("Legacy migration failed:", e);
         }
+      }
+    }
+    // Purge conversations that have sat in the trash for more than 30 days.
+    {
+      const cutoff = Date.now() - 30 * 864e5;
+      const s0 = st.getState();
+      const expired = Object.values(s0.conversations).filter((c) => c.deletedAt && c.deletedAt < cutoff);
+      if (expired.length) {
+        const conversations = { ...s0.conversations };
+        const messages = { ...s0.messages };
+        for (const c of expired) {
+          delete conversations[c.id];
+          delete messages[c.id];
+        }
+        st.setState({ conversations, messages });
       }
     }
     const hasApiKey = await window.aria.secrets.has("anthropicApiKey");

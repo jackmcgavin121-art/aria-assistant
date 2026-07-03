@@ -15,6 +15,7 @@ import {
   suggestAgent,
   getAgent,
   summarizeAndContinue,
+  branchConversation,
 } from "../features/chat";
 import { parseFile, acceptedFileKinds, type ParsedFile } from "../features/files";
 import { renderMarkdown, markdownToText, handleMarkdownClick } from "../lib/markdown";
@@ -42,10 +43,12 @@ function ConvList() {
   const [menu, setMenu] = useState<{ x: number; y: number; convId: string } | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [renameVal, setRenameVal] = useState("");
+  const [folderPick, setFolderPick] = useState<string | null>(null);
+  const [newFolderName, setNewFolderName] = useState("");
   const store = useStore.getState;
 
   const list = useMemo(() => {
-    let all = Object.values(conversations);
+    let all = Object.values(conversations).filter((c) => !c.deletedAt);
     if (query.trim()) {
       const q = query.toLowerCase();
       const msgs = store().messages;
@@ -81,6 +84,32 @@ function ConvList() {
     downloadText(c.title.replace(/[^\w\- ]+/g, "").slice(0, 40) + ".md", md, "text/markdown");
   };
 
+  const exportPdf = async (c: Conversation) => {
+    if (!window.aria.app.exportPdf) {
+      store().toast("PDF export is only available in the installed app.", "info");
+      return;
+    }
+    const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const msgs = store().messages[c.id] ?? [];
+    const body = msgs
+      .map(
+        (m) =>
+          `<div class="m"><div class="who">${esc(m.role === "user" ? "You" : getAgent(m.agentId)?.name || "ARIA")} — ${esc(new Date(m.ts).toLocaleString())}</div>${renderMarkdown(m.content)}</div>`
+      )
+      .join("");
+    const html =
+      `<!doctype html><html><head><meta charset="utf-8"><style>` +
+      `body{font-family:'Segoe UI',Arial,sans-serif;color:#111;margin:32px;font-size:13px;line-height:1.5}` +
+      `h1{font-size:20px}.m{margin:14px 0;padding:10px 12px;border:1px solid #ddd;border-radius:8px;page-break-inside:avoid}` +
+      `.who{font-weight:600;font-size:11px;color:#666;margin-bottom:6px}` +
+      `pre{background:#f5f5f5;padding:8px;border-radius:6px;white-space:pre-wrap}` +
+      `.codebar,.code-copy{display:none}table{border-collapse:collapse}td,th{border:1px solid #ccc;padding:4px 8px}` +
+      `</style></head><body><h1>${esc(c.title)}</h1>${body}</body></html>`;
+    const res = await window.aria.app.exportPdf(html, c.title);
+    if (typeof res === "string") store().toast("PDF saved to " + res, "ok");
+    else if (res && typeof res === "object" && "__error" in res) store().toast("PDF export failed: " + res.__error, "err");
+  };
+
   const menuItems = (c: Conversation): MenuItem[] => [
     { label: c.pinned ? "Unpin" : "Pin", icon: "📌", onClick: () => togglePin(c.id) },
     {
@@ -93,22 +122,12 @@ function ConvList() {
     {
       label: "Move to folder…", icon: "📁",
       onClick: () => {
-        const name = window.prompt("Folder name (blank to remove from folder):", c.folderId ? folders[c.folderId]?.name : "");
-        if (name === null) return;
-        if (!name.trim()) {
-          setConvFolder(c.id, undefined);
-          return;
-        }
-        const s = store();
-        let folder = Object.values(s.folders).find((f) => f.name.toLowerCase() === name.trim().toLowerCase());
-        if (!folder) {
-          folder = { id: uid(), name: name.trim(), createdAt: Date.now() };
-          useStore.setState({ folders: { ...s.folders, [folder.id]: folder } });
-        }
-        setConvFolder(c.id, folder.id);
+        setNewFolderName("");
+        setFolderPick(c.id);
       },
     },
     { label: "Export (.md)", icon: "⬇️", onClick: () => exportConv(c) },
+    { label: "Export (.pdf)", icon: "🖨", onClick: () => void exportPdf(c) },
     { label: "Summarize & continue", icon: "⏩", onClick: () => void summarizeAndContinue(c.id) },
     { label: "Delete", icon: "🗑", danger: true, onClick: () => deleteConversation(c.id) },
   ];
@@ -200,6 +219,67 @@ function ConvList() {
           onClose={() => setMenu(null)}
         />
       )}
+      {folderPick && (
+        <Modal title="Move to folder" onClose={() => setFolderPick(null)}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {Object.values(folders).map((f) => (
+              <button
+                key={f.id}
+                className={"btn" + (conversations[folderPick]?.folderId === f.id ? " primary" : "")}
+                onClick={() => {
+                  setConvFolder(folderPick, f.id);
+                  setFolderPick(null);
+                }}
+              >
+                📁 {f.name}
+              </button>
+            ))}
+            {conversations[folderPick]?.folderId && (
+              <button
+                className="btn"
+                onClick={() => {
+                  setConvFolder(folderPick, undefined);
+                  setFolderPick(null);
+                }}
+              >
+                ✕ Remove from folder
+              </button>
+            )}
+            <div className="row" style={{ marginTop: 8 }}>
+              <input
+                className="input"
+                style={{ flex: 1 }}
+                placeholder="New folder name…"
+                value={newFolderName}
+                autoFocus={Object.keys(folders).length === 0}
+                onChange={(e) => setNewFolderName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && newFolderName.trim()) {
+                    const s = store();
+                    const folder = { id: uid(), name: newFolderName.trim(), createdAt: Date.now() };
+                    useStore.setState({ folders: { ...s.folders, [folder.id]: folder } });
+                    setConvFolder(folderPick, folder.id);
+                    setFolderPick(null);
+                  }
+                }}
+              />
+              <button
+                className="btn primary"
+                disabled={!newFolderName.trim()}
+                onClick={() => {
+                  const s = store();
+                  const folder = { id: uid(), name: newFolderName.trim(), createdAt: Date.now() };
+                  useStore.setState({ folders: { ...s.folders, [folder.id]: folder } });
+                  setConvFolder(folderPick, folder.id);
+                  setFolderPick(null);
+                }}
+              >
+                Create & move
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
@@ -263,14 +343,21 @@ function TeamTabs({ msg }: { msg: Message }) {
   );
 }
 
-/** Edit a user message and resend: everything after it is discarded. */
+/** Edit a user message and resend: everything after it is discarded.
+ *  Attachments (doc text + images) stored on the message ride along again. */
 function editAndResend(convId: string, msgId: string, newText: string) {
   const s = useStore.getState();
   const list = s.messages[convId] ?? [];
   const idx = list.findIndex((m) => m.id === msgId);
   if (idx < 0) return;
+  const orig = list[idx];
   useStore.setState({ messages: { ...s.messages, [convId]: list.slice(0, idx) } });
-  void sendMessage(newText, { convId });
+  void sendMessage(newText, {
+    convId,
+    attachmentMeta: orig.attachments,
+    attachmentText: orig.attachmentText,
+    images: orig.images,
+  });
 }
 
 function saveReplyToKnowledge(msg: Message, convTitle: string) {
@@ -334,6 +421,11 @@ function MessageRow({ msg, convId, isLast, streaming }: { msg: Message; convId: 
           <span className="who">{isUser ? profile.name || "You" : agent?.name ?? "ARIA"}</span>
           {showTimestamps && <span className="when">{fmtTime(msg.ts)}</span>}
           {msg.stopped && <span className="tag warn">stopped</span>}
+          {msg.tokens && (
+            <span className="when" title="Real token usage reported by the API (input includes cached tokens)">
+              {msg.tokens.in.toLocaleString()}→{msg.tokens.out.toLocaleString()} tok
+            </span>
+          )}
         </div>
         {msg.attachments?.map((a, i) => (
           <div key={i} className="attach-pill" style={{ marginBottom: 4 }}>📎 {a.name}</div>
@@ -373,6 +465,18 @@ function MessageRow({ msg, convId, isLast, streaming }: { msg: Message; convId: 
             <button className={"iconbtn" + (speaking ? " lit" : "")} title="Read aloud" onClick={readAloud}>🔊</button>
             <button className="iconbtn" title="Save to knowledge" onClick={() => saveReplyToKnowledge(msg, convTitle)}>💾</button>
             <button className="iconbtn" title="Open in email app" onClick={() => emailOut(msg, convTitle)}>✉️</button>
+            <button
+              className="iconbtn"
+              title="Quote in your next message (select text first to quote just that)"
+              onClick={() => {
+                const sel = window.getSelection()?.toString().trim();
+                const src = sel || markdownToText(msg.content).slice(0, 300);
+                composerInsert?.("> " + src.replace(/\n+/g, "\n> ") + "\n\n");
+              }}
+            >
+              ❝
+            </button>
+            <button className="iconbtn" title="Branch: fork a new conversation from this point" onClick={() => branchConversation(convId, msg.id)}>⑂</button>
             {isLast && (
               <button className="iconbtn" title="Regenerate" onClick={() => void regenerateLast(convId)}>↻</button>
             )}
@@ -382,6 +486,7 @@ function MessageRow({ msg, convId, isLast, streaming }: { msg: Message; convId: 
           <div className="msg-actions">
             <button className="iconbtn" title="Edit & resend" onClick={() => { setEditText(msg.content); setEditing(true); }}>✏️</button>
             <button className="iconbtn" title="Copy" onClick={copy}>⧉</button>
+            <button className="iconbtn" title="Branch: fork a new conversation from this point" onClick={() => branchConversation(convId, msg.id)}>⑂</button>
           </div>
         )}
       </div>
@@ -445,10 +550,15 @@ async function runSlashCommand(text: string, convId: string | null): Promise<boo
 }
 
 /** Set by the mounted Composer so drag-and-drop anywhere in the chat column attaches files. */
-let externalFileDrop: ((files: FileList) => void) | null = null;
+let externalFileDrop: ((files: FileList | File[]) => void) | null = null;
+/** Set by the mounted Composer so message actions (quote) can insert text. */
+let composerInsert: ((text: string) => void) | null = null;
+/** Unsent composer text per conversation — survives switching around. */
+const drafts = new Map<string, string>();
 
 function Composer({ convId }: { convId: string | null }) {
-  const [text, setText] = useState("");
+  const draftKey = convId ?? "@new";
+  const [text, setText] = useState(() => drafts.get(draftKey) ?? "");
   const [attached, setAttached] = useState<ParsedFile[]>([]);
   const [suggestion, setSuggestion] = useState<ReturnType<typeof suggestAgent>>(null);
   const streamingConvId = useStore((s) => s.streamingConvId);
@@ -465,12 +575,23 @@ function Composer({ convId }: { convId: string | null }) {
     ta.style.height = Math.min(ta.scrollHeight, 220) + "px";
   };
 
+  // Load the draft when switching conversations; keep it saved as you type.
+  useEffect(() => {
+    setText(drafts.get(draftKey) ?? "");
+  }, [draftKey]);
+  const updateText = (v: string) => {
+    setText(v);
+    if (v) drafts.set(draftKey, v);
+    else drafts.delete(draftKey);
+  };
+
   const doSend = async () => {
     const t = text.trim();
     if (!t || streaming) return;
     const docs = attached.filter((a) => a.kind !== "image");
     const images = attached.filter((a) => a.kind === "image");
     setText("");
+    drafts.delete(draftKey);
     setAttached([]);
     setSuggestion(null);
     if (taRef.current) taRef.current.style.height = "auto";
@@ -491,7 +612,7 @@ function Composer({ convId }: { convId: string | null }) {
     checkTaskSuggestion();
   };
 
-  const onPickFiles = async (files: FileList | null) => {
+  const onPickFiles = async (files: FileList | File[] | null) => {
     if (!files) return;
     for (const f of Array.from(files)) {
       try {
@@ -506,10 +627,32 @@ function Composer({ convId }: { convId: string | null }) {
 
   useEffect(() => {
     externalFileDrop = (files) => void onPickFiles(files);
+    composerInsert = (t) => {
+      const cur = taRef.current?.value ?? "";
+      updateText(cur ? cur.replace(/\s*$/, "\n\n") + t : t);
+      taRef.current?.focus();
+      window.setTimeout(autoGrow, 0);
+    };
     return () => {
       externalFileDrop = null;
+      composerInsert = null;
     };
-  }, []);
+  }, [draftKey]);
+
+  /** Screenshots / copied images paste straight into the composer as attachments. */
+  const onPaste = (e: React.ClipboardEvent) => {
+    const files: File[] = [];
+    for (const item of Array.from(e.clipboardData.items)) {
+      if (item.kind === "file" && /^image\//.test(item.type)) {
+        const f = item.getAsFile();
+        if (f) files.push(new File([f], f.name && f.name !== "image.png" ? f.name : `pasted-${Date.now()}.png`, { type: f.type }));
+      }
+    }
+    if (files.length) {
+      e.preventDefault();
+      void onPickFiles(files);
+    }
+  };
 
   const conv = useStore((s) => (convId ? s.conversations[convId] : undefined));
   const lastMsg = useStore((s) => {
@@ -535,7 +678,7 @@ function Composer({ convId }: { convId: string | null }) {
       {slashMatches.length > 0 && (
         <div className="slash-hint">
           {slashMatches.map((c) => (
-            <div key={c.cmd} className="row" onClick={() => { setText(c.cmd + " "); taRef.current?.focus(); }}>
+            <div key={c.cmd} className="row" onClick={() => { updateText(c.cmd + " "); taRef.current?.focus(); }}>
               <code>{c.hint}</code>
               <span className="hint">{c.desc}</span>
             </div>
@@ -574,11 +717,12 @@ function Composer({ convId }: { convId: string | null }) {
           placeholder={webResearchMode ? "Message ARIA… (web research on)" : "Message ARIA…"}
           value={text}
           onChange={(e) => {
-            setText(e.target.value);
+            updateText(e.target.value);
             autoGrow();
             if (e.target.value.length > 12) setSuggestion(suggestAgent(e.target.value));
             else setSuggestion(null);
           }}
+          onPaste={onPaste}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
@@ -616,13 +760,37 @@ function Composer({ convId }: { convId: string | null }) {
 function EmptyState() {
   const agents = useStore((s) => s.agents);
   const activeAgentId = useStore((s) => s.activeAgentId);
+  const tasks = useStore((s) => s.tasks);
+  const businessProfile = useStore((s) => s.businessProfile);
   const agent = agents.find((a) => a.id === activeAgentId);
-  const starters = [
-    "Draft a follow-up email to a client",
-    "Summarise this week's priorities",
-    "Help me plan next quarter",
-    "Review a document for risks",
-  ];
+
+  // Starters built from the user's actual data, falling back to generics.
+  const starters = useMemo(() => {
+    const out: string[] = [];
+    const open = tasks.filter((t) => !t.done);
+    const overdue = open.find((t) => t.due && t.due < Date.now());
+    if (overdue) out.push(`Help me get "${overdue.title.slice(0, 42)}" unstuck`);
+    else if (open.length) out.push(`Help me make progress on: ${open[0].title.slice(0, 42)}`);
+    const initiative = businessProfile.initiatives
+      .split(/[\n,;]/)
+      .map((x) => x.trim())
+      .filter(Boolean)[0];
+    if (initiative) out.push(`What's the next step on: ${initiative.slice(0, 42)}`);
+    if (businessProfile.competitors.trim()) out.push("How should we position against our competitors?");
+    const stalledGoal = agent?.goals.find((g) => Date.now() - (g.lastActivity ?? g.createdAt) > 7 * 864e5);
+    if (stalledGoal) out.push(`Let's restart the stalled goal: ${stalledGoal.text.slice(0, 42)}`);
+    for (const g of [
+      "Summarise this week's priorities",
+      "Draft a follow-up email to a client",
+      "Help me plan next quarter",
+      "Review a document for risks",
+    ]) {
+      if (out.length >= 4) break;
+      out.push(g);
+    }
+    return [...new Set(out)].slice(0, 4);
+  }, [tasks, businessProfile, agent]);
+
   return (
     <div className="empty-state">
       <div className="big">{agent?.emoji ?? "✦"}</div>
@@ -677,6 +845,9 @@ export function AgentPicker() {
 
 /* ---------------- main view ---------------- */
 
+/** Long threads render only the newest chunk; older ones load on demand. */
+const RENDER_CHUNK = 60;
+
 export function ChatView() {
   const activeConvId = useStore((s) => s.activeConvId);
   const messages = useStore((s) => (s.activeConvId ? s.messages[s.activeConvId] : undefined));
@@ -685,20 +856,83 @@ export function ChatView() {
   const stickToBottom = useRef(true);
   const [dragOver, setDragOver] = useState(false);
   const dragDepth = useRef(0);
+  const [showJump, setShowJump] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(RENDER_CHUNK);
+  const [find, setFind] = useState<{ open: boolean; q: string; idx: number }>({ open: false, q: "", idx: 0 });
+  const findInputRef = useRef<HTMLInputElement>(null);
+  const findJumped = useRef(false);
 
   useEffect(() => {
     const el = threadRef.current;
     if (el && stickToBottom.current) el.scrollTop = el.scrollHeight;
   }, [messages]);
 
+  useEffect(() => {
+    setVisibleCount(RENDER_CHUNK);
+    setFind({ open: false, q: "", idx: 0 });
+    setShowJump(false);
+    stickToBottom.current = true;
+  }, [activeConvId]);
+
   const onScroll = () => {
     const el = threadRef.current;
     if (!el) return;
-    stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    const fromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    stickToBottom.current = fromBottom < 80;
+    setShowJump(fromBottom > 300);
   };
 
   const list = messages ?? [];
   const streaming = !!streamingConvId && streamingConvId === activeConvId;
+  const shown = list.slice(-visibleCount);
+  const hiddenCount = list.length - shown.length;
+  const lastId = list[list.length - 1]?.id;
+
+  const matches = useMemo(() => {
+    const q = find.q.trim().toLowerCase();
+    if (!q) return [] as string[];
+    return list.filter((m) => m.content.toLowerCase().includes(q)).map((m) => m.id);
+  }, [find.q, list]);
+
+  const jumpToMatch = (idx: number) => {
+    if (!matches.length) return;
+    const wrapped = ((idx % matches.length) + matches.length) % matches.length;
+    setFind((f) => ({ ...f, idx: wrapped }));
+    const id = matches[wrapped];
+    const pos = list.findIndex((m) => m.id === id);
+    const needed = list.length - pos;
+    if (needed > visibleCount) setVisibleCount(needed);
+    window.setTimeout(() => {
+      const el = threadRef.current?.querySelector(`[data-mid="${id}"]`);
+      if (el) {
+        el.scrollIntoView({ block: "center" });
+        el.classList.remove("find-flash");
+        void (el as HTMLElement).offsetWidth; // restart the flash animation
+        el.classList.add("find-flash");
+      }
+    }, 30);
+  };
+
+  // Ctrl+F opens in-thread search (only while the chat view is mounted).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f" && activeConvId) {
+        e.preventDefault();
+        setFind((f) => ({ ...f, open: true }));
+        window.setTimeout(() => findInputRef.current?.focus(), 0);
+      }
+      if (e.key === "Escape") setFind((f) => (f.open ? { ...f, open: false } : f));
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [activeConvId]);
+
+  const scrollToBottom = () => {
+    const el = threadRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+    stickToBottom.current = true;
+    setShowJump(false);
+  };
 
   return (
     <div className="chat-wrap">
@@ -726,22 +960,59 @@ export function ChatView() {
         }}
       >
         {dragOver && <div className="drop-overlay">📎 Drop files to attach</div>}
+        {find.open && activeConvId && (
+          <div className="find-bar">
+            <input
+              ref={findInputRef}
+              className="input"
+              placeholder="Find in conversation…"
+              value={find.q}
+              onChange={(e) => {
+                findJumped.current = false;
+                setFind((f) => ({ ...f, q: e.target.value, idx: 0 }));
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  // First Enter lands on the first match; repeats step through.
+                  jumpToMatch(e.shiftKey ? find.idx - 1 : findJumped.current ? find.idx + 1 : find.idx);
+                  findJumped.current = true;
+                }
+                if (e.key === "Escape") setFind((f) => ({ ...f, open: false }));
+              }}
+            />
+            <span className="hint">{matches.length ? `${find.idx + 1} / ${matches.length}` : find.q ? "0 results" : ""}</span>
+            <button className="iconbtn" title="Previous" onClick={() => jumpToMatch(find.idx - 1)}>↑</button>
+            <button className="iconbtn" title="Next" onClick={() => jumpToMatch(find.idx + 1)}>↓</button>
+            <button className="iconbtn" title="Close" onClick={() => setFind((f) => ({ ...f, open: false }))}>✕</button>
+          </div>
+        )}
         {activeConvId && list.length > 0 ? (
           <div className="thread" ref={threadRef} onScroll={onScroll}>
             <div className="thread-inner">
-              {list.map((m, i) => (
-                <MessageRow
-                  key={m.id}
-                  msg={m}
-                  convId={activeConvId}
-                  isLast={i === list.length - 1}
-                  streaming={streaming}
-                />
+              {hiddenCount > 0 && (
+                <div style={{ textAlign: "center", padding: 8 }}>
+                  <button className="btn sm" onClick={() => setVisibleCount((v) => v + RENDER_CHUNK * 2)}>
+                    ↑ Show earlier messages ({hiddenCount} more)
+                  </button>
+                </div>
+              )}
+              {shown.map((m) => (
+                <div key={m.id} data-mid={m.id}>
+                  <MessageRow
+                    msg={m}
+                    convId={activeConvId}
+                    isLast={m.id === lastId}
+                    streaming={streaming}
+                  />
+                </div>
               ))}
             </div>
           </div>
         ) : (
           <EmptyState />
+        )}
+        {showJump && (
+          <button className="jump-latest" onClick={scrollToBottom}>↓ Latest</button>
         )}
         <Composer convId={activeConvId} />
       </div>

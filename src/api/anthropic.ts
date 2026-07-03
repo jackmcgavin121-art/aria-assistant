@@ -1,5 +1,6 @@
 // Anthropic Messages API client. All network I/O happens in the Electron main
 // process (no CORS hacks); this module speaks the preload bridge and parses SSE.
+import { recordUsage } from "../store/store";
 
 export type ContentBlock =
   | { type: "text"; text: string }
@@ -37,9 +38,16 @@ function systemParam(system: string) {
   return system;
 }
 
+export interface TokenUsage {
+  in: number;
+  out: number;
+  cacheRead: number;
+  cacheWrite: number;
+}
+
 export interface StreamCallbacks {
   onText: (delta: string, full: string) => void;
-  onDone: (full: string) => void;
+  onDone: (full: string, usage?: TokenUsage) => void;
   onError: (message: string) => void;
   onAborted?: (partial: string) => void;
 }
@@ -76,6 +84,7 @@ export function streamCompletion(req: StreamRequest, cb: StreamCallbacks): Strea
   const parser = new SseParser();
   let full = "";
   let errored = false;
+  const usage: TokenUsage = { in: 0, out: 0, cacheRead: 0, cacheWrite: 0 };
 
   const id = window.aria.api.stream(
     {
@@ -90,6 +99,12 @@ export function streamCompletion(req: StreamRequest, cb: StreamCallbacks): Strea
           if (ev.type === "content_block_delta" && ev.delta?.type === "text_delta") {
             full += ev.delta.text;
             cb.onText(ev.delta.text, full);
+          } else if (ev.type === "message_start" && ev.message?.usage) {
+            usage.in = ev.message.usage.input_tokens ?? 0;
+            usage.cacheRead = ev.message.usage.cache_read_input_tokens ?? 0;
+            usage.cacheWrite = ev.message.usage.cache_creation_input_tokens ?? 0;
+          } else if (ev.type === "message_delta" && ev.usage) {
+            usage.out = ev.usage.output_tokens ?? usage.out;
           } else if (ev.type === "error") {
             errored = true;
             cb.onError(ev.error?.message || "Stream error");
@@ -97,7 +112,10 @@ export function streamCompletion(req: StreamRequest, cb: StreamCallbacks): Strea
         });
       },
       onDone: () => {
-        if (!errored) cb.onDone(full);
+        if (!errored) {
+          recordUsage(req.model, usage);
+          cb.onDone(full, usage);
+        }
       },
       onAborted: () => cb.onAborted?.(full),
       onError: (err) => {
@@ -127,6 +145,15 @@ export async function completeOnce(
     tools: req.tools,
   });
   if (!res.ok) return { ok: false, error: res.error };
+  const u = res.data?.usage;
+  if (u) {
+    recordUsage(req.model, {
+      in: u.input_tokens ?? 0,
+      out: u.output_tokens ?? 0,
+      cacheRead: u.cache_read_input_tokens ?? 0,
+      cacheWrite: u.cache_creation_input_tokens ?? 0,
+    });
+  }
   const blocks: any[] = res.data?.content ?? [];
   const text = blocks.filter((b) => b.type === "text").map((b) => b.text).join("");
   const toolUses: ToolUse[] = blocks

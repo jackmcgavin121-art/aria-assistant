@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useStore } from "../store/store";
 import type { Agent } from "../types";
-import { PERSONALITIES, INDUSTRY_TEMPLATES, TEAM_TEMPLATES, agentFromPreset } from "../data/presets";
+import { PERSONALITIES, INDUSTRY_TEMPLATES, TEAM_TEMPLATES, MODELS, agentFromPreset } from "../data/presets";
 import { Modal, ConfirmModal } from "../components/Modal";
 import { ContextMenu } from "../components/ContextMenu";
 import { newConversation } from "../features/chat";
@@ -79,6 +79,12 @@ function AgentWizard({ existing, onClose }: { existing?: Agent; onClose: () => v
           <input className="input" value={data.name} onChange={(e) => upd({ name: e.target.value })} placeholder="e.g. Growth Marketer" />
           <label className="label">Role / department</label>
           <input className="input" value={data.role} onChange={(e) => upd({ role: e.target.value })} placeholder="e.g. Marketing" />
+          <label className="label">Model</label>
+          <select className="input" value={data.model ?? ""} onChange={(e) => upd({ model: e.target.value || undefined })}>
+            <option value="">App default</option>
+            {MODELS.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+          </select>
+          <p className="hint">Give heavyweight agents a stronger model and quick helpers a cheaper one — big lever on API cost.</p>
         </>
       )}
 
@@ -247,7 +253,7 @@ export function AgentsView() {
 
   const convCounts = useMemo(() => {
     const counts: Record<string, number> = {};
-    for (const c of Object.values(conversations)) if (c.agentId) counts[c.agentId] = (counts[c.agentId] ?? 0) + 1;
+    for (const c of Object.values(conversations)) if (c.agentId && !c.deletedAt) counts[c.agentId] = (counts[c.agentId] ?? 0) + 1;
     return counts;
   }, [conversations]);
 

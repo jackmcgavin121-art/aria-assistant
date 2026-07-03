@@ -65,7 +65,31 @@ export function setConvFolder(id: string, folderId?: string) {
   useStore.setState({ conversations: { ...s.conversations, [id]: { ...c, folderId } } });
 }
 
+/** Soft delete: moves to trash (purged after 30 days), with an Undo toast. */
 export function deleteConversation(id: string) {
+  const s = useStore.getState();
+  const c = s.conversations[id];
+  if (!c) return;
+  useStore.setState({
+    conversations: { ...s.conversations, [id]: { ...c, deletedAt: Date.now() } },
+    activeConvId: s.activeConvId === id ? null : s.activeConvId,
+  });
+  s.toast("Conversation moved to trash", "info", {
+    label: "Undo",
+    onClick: () => restoreConversation(id),
+  });
+}
+
+export function restoreConversation(id: string) {
+  const s = useStore.getState();
+  const c = s.conversations[id];
+  if (!c) return;
+  const { deletedAt: _gone, ...rest } = c;
+  useStore.setState({ conversations: { ...s.conversations, [id]: rest as Conversation } });
+}
+
+/** Permanent removal (empty trash / delete forever). */
+export function purgeConversation(id: string) {
   const s = useStore.getState();
   const conversations = { ...s.conversations };
   const messages = { ...s.messages };
@@ -76,6 +100,26 @@ export function deleteConversation(id: string) {
     messages,
     activeConvId: s.activeConvId === id ? null : s.activeConvId,
   });
+}
+
+/** Fork a conversation: copy everything up to and including the given message. */
+export function branchConversation(convId: string, msgId: string) {
+  const s = useStore.getState();
+  const conv = s.conversations[convId];
+  const list = s.messages[convId] ?? [];
+  const idx = list.findIndex((m) => m.id === msgId);
+  if (!conv || idx < 0) return;
+  const fresh = newConversation({
+    agentId: conv.agentId,
+    projectId: conv.projectId,
+    folderId: conv.folderId,
+    title: conv.title.replace(/ \(branch\)$/, "").slice(0, 50) + " (branch)",
+  });
+  const st = useStore.getState();
+  useStore.setState({
+    messages: { ...st.messages, [fresh.id]: list.slice(0, idx + 1).map((m) => ({ ...m, id: uid() })) },
+  });
+  s.toast("Branched into a new conversation", "ok");
 }
 
 function pushMessage(convId: string, msg: Message) {
@@ -183,12 +227,17 @@ export async function sendMessage(text: string, opts: SendOptions = {}): Promise
 
   detectLearningSignals(text);
 
+  // Keep attachment content with the message so edit & resend / regenerate
+  // can honestly re-send it (images only when small enough to persist sanely).
+  const imagesSize = (opts.images ?? []).reduce((n, im) => n + im.base64.length, 0);
   const userMsg: Message = {
     id: uid(),
     role: "user",
     content: text,
     ts: Date.now(),
     attachments: opts.attachmentMeta,
+    attachmentText: opts.attachmentText?.slice(0, 300_000),
+    images: opts.images?.length && imagesSize <= 1_500_000 ? opts.images : undefined,
     webSources: opts.webSources,
   };
   pushMessage(convId, userMsg);
@@ -220,13 +269,14 @@ export async function sendMessage(text: string, opts: SendOptions = {}): Promise
   if (apiMessages.length) apiMessages[apiMessages.length - 1].content = finalBlock;
   else apiMessages.push({ role: "user", content: finalBlock });
 
+  const model = agent?.model || s.model;
   const assistantMsg: Message = {
     id: uid(),
     role: "assistant",
     content: "",
     ts: Date.now(),
     agentId: agent?.id,
-    model: s.model,
+    model,
     webSources: opts.webSources,
   };
   pushMessage(convId, assistantMsg);
@@ -234,10 +284,15 @@ export async function sendMessage(text: string, opts: SendOptions = {}): Promise
 
   await new Promise<void>((resolve) => {
     currentStream = streamCompletion(
-      { model: s.model, maxTokens: s.maxTokens, system, messages: apiMessages },
+      { model, maxTokens: s.maxTokens, system, messages: apiMessages },
       {
         onText: (_delta, full) => updateLastAssistant(convId, { content: full }),
-        onDone: (full) => {
+        onDone: (full, usage) => {
+          if (usage) {
+            updateLastAssistant(convId, {
+              tokens: { in: usage.in + usage.cacheRead + usage.cacheWrite, out: usage.out },
+            });
+          }
           store.setState({ streamingConvId: null });
           currentStream = null;
           const st = store.getState();
@@ -344,7 +399,12 @@ export async function regenerateLast(convId: string): Promise<void> {
   store.setState({
     messages: { ...s.messages, [convId]: list.slice(0, ai - 1) },
   });
-  await sendMessage(userMsg.content, { convId, attachmentMeta: userMsg.attachments });
+  await sendMessage(userMsg.content, {
+    convId,
+    attachmentMeta: userMsg.attachments,
+    attachmentText: userMsg.attachmentText,
+    images: userMsg.images,
+  });
 }
 
 export function rateMessage(convId: string, msgId: string, rating: 1 | -1) {

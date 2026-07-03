@@ -28,6 +28,7 @@ export function GlobalSearch() {
     // Ctrl+P mode: recent conversations, no query needed.
     if (mode === "convs") {
       const recent = Object.values(s.conversations)
+        .filter((c) => !c.deletedAt)
         .filter((c) => !query || c.title.toLowerCase().includes(query))
         .sort((a, b) => b.updatedAt - a.updatedAt)
         .slice(0, 15);
@@ -51,6 +52,7 @@ export function GlobalSearch() {
       { icon: "⚙️", title: "Open Settings", sub: "action", go: () => { useStore.setState({ settingsOpen: true }); close(); } },
       { icon: "🔑", title: "Set API key", sub: "action · Settings → AI & API", go: () => { useStore.setState({ settingsOpen: true, settingsTab: "ai" }); close(); } },
       { icon: "🔔", title: "Open alerts", sub: "action", go: () => { useStore.setState({ alertsOpen: true }); close(); } },
+      { icon: "🏠", title: "Go to Home", sub: "action", go: go("home") },
       { icon: "💬", title: "Go to Chat", sub: "action", go: go("chat") },
       { icon: "🤖", title: "Go to Agents", sub: "action", go: go("agents") },
       { icon: "📚", title: "Go to Knowledge", sub: "action", go: go("knowledge") },
@@ -72,6 +74,7 @@ export function GlobalSearch() {
     if (query.length < 2) return out;
 
     for (const c of Object.values(s.conversations)) {
+      if (c.deletedAt) continue;
       const inTitle = c.title.toLowerCase().includes(query);
       const inBody = (s.messages[c.id] ?? []).some((m) => m.content.toLowerCase().includes(query));
       if (inTitle || inBody)

@@ -2,18 +2,123 @@ import { useEffect, useState } from "react";
 import { useStore, applyImport, flushSave, serializeState } from "../store/store";
 import { MODELS } from "../data/presets";
 import { Modal, ConfirmModal } from "../components/Modal";
-import { hashPw } from "../lib/util";
+import { hashPw, fmtDate } from "../lib/util";
 import { listVoices, speak, ttsSupported } from "../lib/tts";
+import { restoreConversation, purgeConversation } from "../features/chat";
 
 const TABS = [
   { id: "profile", label: "Profile" },
   { id: "ai", label: "AI & API" },
+  { id: "usage", label: "Usage" },
   { id: "voice", label: "Voice" },
   { id: "workspace", label: "Workspace" },
   { id: "web", label: "Web research" },
   { id: "admin", label: "Admin" },
   { id: "data", label: "Data" },
 ];
+
+/** Published per-MTok USD rates for cost estimates (cache read = 10% of input, write = 125%). */
+const PRICES: { match: RegExp; in: number; out: number }[] = [
+  { match: /opus/i, in: 15, out: 75 },
+  { match: /sonnet/i, in: 3, out: 15 },
+  { match: /haiku/i, in: 1, out: 5 },
+];
+
+function estimateCost(model: string, b: { in: number; out: number; cacheRead: number; cacheWrite: number }): number | null {
+  const p = PRICES.find((x) => x.match.test(model));
+  if (!p) return null;
+  return (
+    (b.in * p.in + b.out * p.out + b.cacheRead * p.in * 0.1 + b.cacheWrite * p.in * 1.25) / 1e6
+  );
+}
+
+function UsageTab() {
+  const usage = useStore((s) => s.usage);
+  const months = Object.keys(usage).sort().reverse();
+  if (!months.length) {
+    return <p className="hint">No API usage recorded yet. Token counts come straight from the API's own responses and start accumulating with your next message.</p>;
+  }
+  return (
+    <div style={{ maxWidth: 640 }}>
+      <p className="hint">
+        Real token counts reported by the Anthropic API — nothing is estimated except the cost column,
+        which uses published list prices (cached input billed at 10%, cache writes at 125%).
+      </p>
+      {months.map((month) => {
+        const byModel = usage[month];
+        let monthCost = 0;
+        let costKnown = true;
+        const rows = Object.entries(byModel).map(([model, b]) => {
+          const cost = estimateCost(model, b);
+          if (cost === null) costKnown = false;
+          else monthCost += cost;
+          return { model, b, cost };
+        });
+        return (
+          <div key={month} className="card" style={{ marginBottom: 12 }}>
+            <h3>
+              {month}
+              {rows.length > 0 && (
+                <span className="tag" style={{ marginLeft: 8 }}>
+                  {costKnown ? `≈ $${monthCost.toFixed(2)}` : "cost unknown for some models"}
+                </span>
+              )}
+            </h3>
+            <table className="usage-table">
+              <thead>
+                <tr><th>Model</th><th>Calls</th><th>Input</th><th>Output</th><th>Cache read</th><th>Cache write</th><th>Est. cost</th></tr>
+              </thead>
+              <tbody>
+                {rows.map(({ model, b, cost }) => (
+                  <tr key={model}>
+                    <td style={{ fontFamily: "var(--mono)", fontSize: 12 }}>{model.replace(/^claude-/, "")}</td>
+                    <td>{b.calls.toLocaleString()}</td>
+                    <td>{b.in.toLocaleString()}</td>
+                    <td>{b.out.toLocaleString()}</td>
+                    <td>{b.cacheRead.toLocaleString()}</td>
+                    <td>{b.cacheWrite.toLocaleString()}</td>
+                    <td>{cost === null ? "—" : `$${cost.toFixed(2)}`}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function TrashSection() {
+  const conversations = useStore((s) => s.conversations);
+  const trashed = Object.values(conversations)
+    .filter((c) => c.deletedAt)
+    .sort((a, b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0));
+  if (!trashed.length) return <p className="hint">Trash is empty. Deleted conversations sit here for 30 days before being removed.</p>;
+  return (
+    <div>
+      <p className="hint">Deleted conversations are kept for 30 days, then removed permanently.</p>
+      {trashed.map((c) => (
+        <div key={c.id} className="row" style={{ padding: "4px 0", gap: 8 }}>
+          <span className="grow" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {c.title} <span className="hint">({fmtDate(c.deletedAt)})</span>
+          </span>
+          <button className="btn sm" onClick={() => restoreConversation(c.id)}>↩ Restore</button>
+          <button className="btn sm danger" onClick={() => purgeConversation(c.id)}>Delete forever</button>
+        </div>
+      ))}
+      <button
+        className="btn sm danger"
+        style={{ marginTop: 8 }}
+        onClick={() => {
+          for (const c of trashed) purgeConversation(c.id);
+        }}
+      >
+        🗑 Empty trash ({trashed.length})
+      </button>
+    </div>
+  );
+}
 
 function SecretField({ name, label, hint }: { name: string; label: string; hint?: string }) {
   const [preview, setPreview] = useState<string | null>(null);
@@ -136,6 +241,8 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
         </div>
       )}
 
+      {tab === "usage" && <UsageTab />}
+
       {tab === "voice" && (
         <div style={{ maxWidth: 480 }}>
           <label className="checkbox-row">
@@ -250,7 +357,16 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                 toast("Import failed: " + e.message, "err");
               }
             }}>⬆ Import backup</button>
+            {window.aria.app.openBackups && (
+              <button className="btn" onClick={() => void window.aria.app.openBackups!()}>📂 Open backups folder</button>
+            )}
           </div>
+          <p className="hint" style={{ marginTop: 8 }}>
+            ARIA also snapshots your data automatically once a day (the 7 newest are kept in the backups folder).
+          </p>
+          <hr className="divider" />
+          <h3 style={{ margin: "0 0 4px" }}>🗑 Trash</h3>
+          <TrashSection />
           <hr className="divider" />
           <button className="btn danger" onClick={() => setConfirmWipe(true)}>🗑 Wipe all data…</button>
           {confirmWipe && (

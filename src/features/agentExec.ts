@@ -2,10 +2,11 @@
 // the LLM to produce the finished deliverable; the streamed character count
 // drives the progress display, and the result lands in a new conversation.
 import { useStore } from "../store/store";
-import type { Agent, AgentTask, Conversation } from "../types";
+import type { Agent, AgentTask, Conversation, WebSource } from "../types";
 import { uid } from "../lib/util";
 import { buildSystemPrompt } from "../api/systemPrompt";
-import { streamOnce } from "../api/anthropic";
+import { streamOnce, completeOnce } from "../api/anthropic";
+import { runWebResearch } from "./webResearch";
 
 function patchAgent(agentId: string, fn: (a: Agent) => Agent) {
   const s = useStore.getState();
@@ -59,6 +60,69 @@ export function agentCapacity(a: Agent, maxTasks: number): { pct: number; availa
 
 const running = new Set<string>(); // agentId:taskId guards double-runs
 
+// Pre-execution decision: does this task need live web information?
+const RESEARCH_TOOLS = [
+  {
+    name: "web_research",
+    description:
+      "Fetch live web information before producing the deliverable. Use ONLY when current external facts (prices, news, competitor moves, regulations, market data) would materially improve the result.",
+    input_schema: {
+      type: "object",
+      properties: {
+        queries: {
+          type: "array",
+          items: { type: "string" },
+          description: "1-2 focused search queries",
+        },
+      },
+      required: ["queries"],
+    },
+  },
+  {
+    name: "no_research_needed",
+    description: "The task can be completed well from existing knowledge and business context.",
+    input_schema: { type: "object", properties: {} },
+  },
+];
+
+/**
+ * Optional research step before execution (only when the user has web
+ * research enabled): the agent decides whether live info would help, then
+ * up to 2 searches run and their findings feed the deliverable.
+ */
+async function gatherTaskResearch(
+  model: string,
+  system: string,
+  taskPrompt: string
+): Promise<{ context: string; sources: WebSource[] } | null> {
+  const decide = await completeOnce({
+    model,
+    maxTokens: 300,
+    system,
+    tools: RESEARCH_TOOLS,
+    messages: [
+      {
+        role: "user",
+        content: `Before producing the deliverable, decide whether LIVE web information would materially improve it. Use exactly one tool.\n\n${taskPrompt}`,
+      },
+    ],
+  });
+  if (!decide.ok || decide.toolUses[0]?.name !== "web_research") return null;
+  const queries = ((decide.toolUses[0].input.queries as unknown[]) ?? [])
+    .filter((q): q is string => typeof q === "string" && q.trim().length > 0)
+    .slice(0, 2);
+  const chunks: string[] = [];
+  const sources: WebSource[] = [];
+  for (const q of queries) {
+    const r = await runWebResearch(q);
+    if (r) {
+      chunks.push(`RESEARCH QUERY: ${q}\n${r.context}`);
+      sources.push(...r.sources);
+    }
+  }
+  return chunks.length ? { context: chunks.join("\n\n"), sources } : null;
+}
+
 /**
  * Execute an assigned/blocked agent task for real. Status transitions are
  * driven by the actual API call; progress = characters streamed so far.
@@ -79,18 +143,35 @@ export async function runAgentTask(agentId: string, taskId: string): Promise<voi
   patchTask(agentId, taskId, { status: "in_progress", startedAt: Date.now(), streamedChars: 0, blockers: [] });
 
   const { system } = buildSystemPrompt(s, agent, null, task.title + " " + (task.description ?? ""));
+  const model = agent.model || s.model;
   const taskPrompt =
     `You have been assigned this task. Produce the FINISHED DELIVERABLE now — not a plan, not questions, the actual completed work product, ready to use.\n\n` +
     `TASK: ${task.title}` +
     (task.description ? `\n\nDETAILS: ${task.description}` : "") +
     (task.due ? `\n\nDUE: ${new Date(task.due).toLocaleDateString()}` : "");
 
+  // Multi-step: optional live research pass first (only if the user enabled web research).
+  let research: { context: string; sources: WebSource[] } | null = null;
+  if (s.settings.webResearchMode) {
+    research = await gatherTaskResearch(model, system, taskPrompt);
+    if (research) patchTask(agentId, taskId, { webSources: research.sources });
+  }
+
   const result = await streamOnce(
     {
-      model: s.model,
+      model,
       maxTokens: Math.max(s.maxTokens, 2048),
       system: system + "\n\nYou are completing an assigned work task autonomously. Deliver complete, polished output.",
-      messages: [{ role: "user", content: taskPrompt }],
+      messages: [
+        {
+          role: "user",
+          content:
+            taskPrompt +
+            (research
+              ? `\n\n---\nLIVE WEB RESEARCH (fetched just now for this task — cite sources where used):\n\n${research.context}`
+              : ""),
+        },
+      ],
     },
     (chars) => patchTask(agentId, taskId, { streamedChars: chars })
   );
@@ -114,7 +195,7 @@ export async function runAgentTask(agentId: string, taskId: string): Promise<voi
         ...st.messages,
         [conv.id]: [
           { id: uid(), role: "user", content: `**Task assigned:** ${task.title}${task.description ? `\n\n${task.description}` : ""}`, ts: Date.now() },
-          { id: uid(), role: "assistant", content: result.text, ts: Date.now(), agentId },
+          { id: uid(), role: "assistant", content: result.text, ts: Date.now(), agentId, webSources: research?.sources },
         ],
       },
     });

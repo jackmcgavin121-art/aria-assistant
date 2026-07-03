@@ -60,5 +60,7 @@ contextBridge.exposeInMainWorld("aria", {
     openExternal: (url) => ipcRenderer.invoke("shell:openExternal", url),
     setCloseToTray: (on) => ipcRenderer.invoke("app:setCloseToTray", on),
     setTrayTooltip: (text) => ipcRenderer.invoke("app:setTrayTooltip", text),
+    openBackups: () => ipcRenderer.invoke("app:openBackups"),
+    exportPdf: (html, title) => ipcRenderer.invoke("export:pdf", html, title),
   },
 });

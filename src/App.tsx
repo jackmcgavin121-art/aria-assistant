@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useStore } from "./store/store";
 import type { ViewId } from "./types";
 import { ChatView, AgentPicker } from "./views/ChatView";
+import { DashboardView } from "./views/DashboardView";
 import { AgentsView } from "./views/AgentsView";
 import { KnowledgeView } from "./views/KnowledgeView";
 import { ProjectsView } from "./views/ProjectsView";
@@ -16,18 +17,20 @@ import { ArtifactModal } from "./views/ArtifactModal";
 import { VoiceModal } from "./views/VoiceModal";
 import { PortalView } from "./views/PortalView";
 import { Toasts } from "./components/Toasts";
+import { Modal } from "./components/Modal";
 import { initRecurringScheduler } from "./features/tasks";
 import { initProactiveChecks } from "./features/autonomy";
 import { activeTaskCount } from "./features/agentExec";
 
 const NAV: { id: ViewId; icon: string; label: string; key: string }[] = [
-  { id: "chat", icon: "💬", label: "Chat", key: "1" },
-  { id: "agents", icon: "🤖", label: "Agents", key: "2" },
-  { id: "knowledge", icon: "📚", label: "Knowledge", key: "3" },
-  { id: "projects", icon: "📁", label: "Projects", key: "4" },
-  { id: "tasks", icon: "☑️", label: "Tasks", key: "5" },
-  { id: "agenthub", icon: "🎯", label: "Agent Hub", key: "6" },
-  { id: "workload", icon: "📊", label: "Workload", key: "7" },
+  { id: "home", icon: "🏠", label: "Home", key: "1" },
+  { id: "chat", icon: "💬", label: "Chat", key: "2" },
+  { id: "agents", icon: "🤖", label: "Agents", key: "3" },
+  { id: "knowledge", icon: "📚", label: "Knowledge", key: "4" },
+  { id: "projects", icon: "📁", label: "Projects", key: "5" },
+  { id: "tasks", icon: "☑️", label: "Tasks", key: "6" },
+  { id: "agenthub", icon: "🎯", label: "Agent Hub", key: "7" },
+  { id: "workload", icon: "📊", label: "Workload", key: "8" },
 ];
 
 function Sidebar() {
@@ -138,6 +141,7 @@ export default function App() {
   const portalAgentId = useStore((s) => s.portalAgentId);
   const [artifactsOpen, setArtifactsOpen] = useState(false);
   const [voiceOpen, setVoiceOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
   const fontScale = useStore((s) => s.settings.fontScale);
   const closeToTray = useStore((s) => s.settings.closeToTray);
@@ -175,6 +179,21 @@ export default function App() {
     if (bootStatus !== "ready") return;
     initRecurringScheduler();
     initProactiveChecks();
+    // "What's new" note the first time a new version runs.
+    void window.aria.app.info().then((info) => {
+      const s = useStore.getState();
+      const last = s.settings.lastSeenVersion;
+      if (last && last !== info.version) {
+        s.toast(`ARIA updated to v${info.version}`, "ok", {
+          label: "What's new",
+          onClick: () =>
+            void window.aria.app.openExternal("https://github.com/jackmcgavin121-art/aria-assistant/releases"),
+        });
+      }
+      if (last !== info.version) {
+        useStore.setState({ settings: { ...s.settings, lastSeenVersion: info.version } });
+      }
+    });
   }, [bootStatus]);
 
   useEffect(() => {
@@ -192,8 +211,12 @@ export default function App() {
         const s = useStore.getState();
         useStore.setState({ settings: { ...s.settings, sidebarCollapsed: !s.settings.sidebarCollapsed } });
       }
+      if ((e.ctrlKey || e.metaKey) && e.key === "/") {
+        e.preventDefault();
+        setShortcutsOpen((v) => !v);
+      }
       const tag = (e.target as HTMLElement).tagName;
-      if ((e.ctrlKey || e.metaKey) && /^[1-7]$/.test(e.key) && tag !== "INPUT" && tag !== "TEXTAREA") {
+      if ((e.ctrlKey || e.metaKey) && /^[1-8]$/.test(e.key) && tag !== "INPUT" && tag !== "TEXTAREA") {
         const nav = NAV[+e.key - 1];
         if (nav) useStore.setState({ view: nav.id });
       }
@@ -219,6 +242,7 @@ export default function App() {
       <div className="main">
         <TopBar onOpenArtifacts={() => setArtifactsOpen(true)} onOpenVoice={() => setVoiceOpen(true)} />
         <div className="content">
+          {view === "home" && <DashboardView />}
           {view === "chat" && <ChatView />}
           {view === "agents" && <AgentsView />}
           {view === "knowledge" && <KnowledgeView />}
@@ -234,7 +258,36 @@ export default function App() {
       {searchOpen && <GlobalSearch />}
       {artifactsOpen && <ArtifactModal onClose={() => setArtifactsOpen(false)} />}
       {voiceOpen && <VoiceModal onClose={() => setVoiceOpen(false)} />}
+      {shortcutsOpen && <ShortcutsModal onClose={() => setShortcutsOpen(false)} />}
       <Toasts />
     </div>
+  );
+}
+
+const SHORTCUTS: { keys: string; what: string }[] = [
+  { keys: "Ctrl K", what: "Command palette & global search" },
+  { keys: "Ctrl P", what: "Quick-switch between recent conversations" },
+  { keys: "Ctrl F", what: "Find in the open conversation" },
+  { keys: "Ctrl B", what: "Collapse / expand the sidebar" },
+  { keys: "Ctrl 1–8", what: "Jump to a view (Home, Chat, Agents…)" },
+  { keys: "Ctrl /", what: "This cheat sheet" },
+  { keys: "Enter", what: "Send message" },
+  { keys: "Shift Enter", what: "New line in the composer" },
+  { keys: "Esc", what: "Close panels and dialogs" },
+];
+
+function ShortcutsModal({ onClose }: { onClose: () => void }) {
+  return (
+    <Modal title="Keyboard shortcuts" onClose={onClose}>
+      {SHORTCUTS.map((s) => (
+        <div key={s.keys} className="row" style={{ justifyContent: "space-between", padding: "6px 0" }}>
+          <span>{s.what}</span>
+          <span className="kbd">{s.keys}</span>
+        </div>
+      ))}
+      <div className="hint" style={{ marginTop: 8 }}>
+        Tip: type <b>/</b> at the start of a message for slash commands (/task, /remember, /research, /artifact).
+      </div>
+    </Modal>
   );
 }

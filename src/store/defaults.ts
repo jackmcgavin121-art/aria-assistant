@@ -75,6 +75,7 @@ export function defaultState(): AppState {
     folders: {},
     artifacts: {},
     settings: defaultSettings(),
+    usage: {},
   };
 }
 

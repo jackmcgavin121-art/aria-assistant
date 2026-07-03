@@ -48,6 +48,8 @@ export interface AriaBridge {
     openExternal: (url: string) => Promise<void>;
     setCloseToTray: (on: boolean) => Promise<boolean>;
     setTrayTooltip: (text: string) => Promise<boolean>;
+    openBackups?: () => Promise<string>;
+    exportPdf?: (html: string, title: string) => Promise<string | null | { __error: string }>;
   };
 }
 

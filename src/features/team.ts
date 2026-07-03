@@ -78,7 +78,7 @@ export async function sendTeamMessage(text: string, agentIds: string[], existing
           const { system } = buildSystemPrompt(st, agent, st.conversations[convId!], text);
           streamCompletion(
             {
-              model: st.model,
+              model: agent?.model || st.model,
               maxTokens: st.maxTokens,
               system:
                 system +

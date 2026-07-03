@@ -15,6 +15,7 @@ const userData = () => app.getPath("userData");
 const STATE_FILE = () => path.join(userData(), "aria-state.json");
 const SECRETS_FILE = () => path.join(userData(), "aria-secrets.json");
 const BACKUP_DIR = () => path.join(userData(), "backups");
+const WINSTATE_FILE = () => path.join(userData(), "window-state.json");
 
 // ---------------------------------------------------------------- state store
 async function readState() {
@@ -40,6 +41,45 @@ async function writeState(json) {
     await fsp.unlink(tmp).catch(() => {});
   });
   return true;
+}
+
+// ---------------------------------------------------------------- auto backups
+// Daily rotating snapshot of the state file (keeps the newest 7). Runs shortly
+// after launch — capturing the previous session's data — and every 6 hours.
+async function runAutoBackup() {
+  try {
+    const raw = await fsp.readFile(STATE_FILE(), "utf8").catch(() => null);
+    if (!raw) return;
+    const dir = BACKUP_DIR();
+    await fsp.mkdir(dir, { recursive: true });
+    const today = new Date().toISOString().slice(0, 10);
+    const file = path.join(dir, `aria-auto-${today}.json`);
+    if (!fs.existsSync(file)) await fsp.writeFile(file, raw, "utf8");
+    const files = (await fsp.readdir(dir)).filter((f) => /^aria-auto-.*\.json$/.test(f)).sort();
+    for (const f of files.slice(0, Math.max(0, files.length - 7))) {
+      await fsp.unlink(path.join(dir, f)).catch(() => {});
+    }
+  } catch (e) {
+    console.warn("[backup]", String(e && e.message ? e.message : e));
+  }
+}
+
+// ---------------------------------------------------------------- window state
+function readWinState() {
+  try {
+    return JSON.parse(fs.readFileSync(WINSTATE_FILE(), "utf8"));
+  } catch {
+    return null;
+  }
+}
+function saveWinState(win) {
+  try {
+    const maximized = win.isMaximized();
+    const b = maximized ? win.getNormalBounds() : win.getBounds();
+    fs.writeFileSync(WINSTATE_FILE(), JSON.stringify({ ...b, maximized }), "utf8");
+  } catch {
+    /* non-fatal */
+  }
 }
 
 // ---------------------------------------------------------------- secrets
@@ -287,6 +327,36 @@ function registerIpc() {
     return true;
   });
 
+  ipcMain.handle("app:openBackups", async () => {
+    await fsp.mkdir(BACKUP_DIR(), { recursive: true });
+    return shell.openPath(BACKUP_DIR());
+  });
+
+  // Render a self-contained HTML document to PDF via a hidden window.
+  ipcMain.handle("export:pdf", async (e, html, title) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    const { canceled, filePath } = await dialog.showSaveDialog(win, {
+      title: "Export PDF",
+      defaultPath: String(title || "aria-export").replace(/[^\w\- ]+/g, "").trim().slice(0, 40) + ".pdf",
+      filters: [{ name: "PDF", extensions: ["pdf"] }],
+    });
+    if (canceled || !filePath) return null;
+    const tmp = path.join(app.getPath("temp"), `aria-print-${Date.now()}.html`);
+    const printWin = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
+    try {
+      await fsp.writeFile(tmp, String(html), "utf8");
+      await printWin.loadFile(tmp);
+      const pdf = await printWin.webContents.printToPDF({ printBackground: true });
+      await fsp.writeFile(filePath, pdf);
+      return filePath;
+    } catch (err) {
+      return { __error: String(err && err.message ? err.message : err) };
+    } finally {
+      printWin.destroy();
+      fsp.unlink(tmp).catch(() => {});
+    }
+  });
+
   ipcMain.handle("app:info", () => ({
     version: app.getVersion(),
     platform: process.platform,
@@ -349,9 +419,12 @@ function createTray(win) {
 }
 
 function createWindow() {
+  const saved = readWinState();
   const win = new BrowserWindow({
-    width: 1360,
-    height: 860,
+    width: saved?.width || 1360,
+    height: saved?.height || 860,
+    x: typeof saved?.x === "number" ? saved.x : undefined,
+    y: typeof saved?.y === "number" ? saved.y : undefined,
     minWidth: 960,
     minHeight: 620,
     title: "ARIA",
@@ -377,8 +450,20 @@ function createWindow() {
     return { action: "deny" };
   });
 
+  if (saved?.maximized) win.maximize();
+
+  // Remember size/position across launches (debounced).
+  let winStateTimer;
+  const queueSaveWinState = () => {
+    clearTimeout(winStateTimer);
+    winStateTimer = setTimeout(() => saveWinState(win), 500);
+  };
+  win.on("resize", queueSaveWinState);
+  win.on("move", queueSaveWinState);
+
   // Close-to-tray (opt-in from Settings): hide instead of quit.
   win.on("close", (e) => {
+    saveWinState(win);
     if (closeToTray && !quitting) {
       e.preventDefault();
       win.hide();
@@ -404,6 +489,8 @@ app.whenReady().then(() => {
   const win = createWindow();
   createTray(win);
   setupAutoUpdates(win);
+  setTimeout(runAutoBackup, 30_000);
+  setInterval(runAutoBackup, 6 * 3600_000);
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
