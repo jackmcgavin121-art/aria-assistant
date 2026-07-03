@@ -4,3 +4,5 @@ dist-renderer/
 display-output/
 *.log
 .DS_Store
+.claude/
+legacy/
