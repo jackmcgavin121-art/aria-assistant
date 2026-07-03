@@ -19,6 +19,13 @@
     "appId": "com.aria.assistant",
     "productName": "ARIA",
     "copyright": "Copyright © 2026",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "jackmcgavin121-art",
+        "repo": "aria-assistant"
+      }
+    ],
     "directories": {
       "output": "dist"
     },
