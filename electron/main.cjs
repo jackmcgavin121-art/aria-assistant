@@ -500,17 +500,32 @@ function createWindow() {
   return win;
 }
 
-app.whenReady().then(() => {
-  registerIpc();
-  const win = createWindow();
-  createTray(win);
-  setupAutoUpdates(win);
-  setTimeout(runAutoBackup, 30_000);
-  setInterval(runAutoBackup, 6 * 3600_000);
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+// Single instance only: two ARIA processes would fight over aria-state.json.
+// A second launch just focuses (or un-trays) the existing window.
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    const win = BrowserWindow.getAllWindows()[0];
+    if (win) {
+      win.show();
+      if (win.isMinimized()) win.restore();
+      win.focus();
+    }
   });
-});
+
+  app.whenReady().then(() => {
+    registerIpc();
+    const win = createWindow();
+    createTray(win);
+    setupAutoUpdates(win);
+    setTimeout(runAutoBackup, 30_000);
+    setInterval(runAutoBackup, 6 * 3600_000);
+    app.on("activate", () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
+  });
+}
 
 app.on("before-quit", () => {
   quitting = true;
