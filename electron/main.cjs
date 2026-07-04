@@ -2,7 +2,7 @@
 // Owns: window lifecycle, on-disk persistence (userData), encrypted secrets
 // (safeStorage), and all outbound network calls (Anthropic streaming + an
 // allowlisted fetch proxy) so the renderer never needs CORS workarounds.
-const { app, BrowserWindow, ipcMain, dialog, safeStorage, shell, session, Tray, Menu, nativeImage } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, safeStorage, shell, session, screen, Tray, Menu, nativeImage } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const fsp = fs.promises;
@@ -418,13 +418,29 @@ function createTray(win) {
   });
 }
 
+// A saved position is only reused if it still lands on a connected display
+// (monitors get unplugged; never restore the window somewhere invisible).
+function savedPositionVisible(b) {
+  if (!b || typeof b.x !== "number" || typeof b.y !== "number") return false;
+  return screen.getAllDisplays().some((d) => {
+    const a = d.workArea;
+    return (
+      b.x < a.x + a.width - 40 &&
+      b.x + (b.width || 1360) > a.x + 40 &&
+      b.y >= a.y - 10 &&
+      b.y < a.y + a.height - 40
+    );
+  });
+}
+
 function createWindow() {
   const saved = readWinState();
+  const onScreen = savedPositionVisible(saved);
   const win = new BrowserWindow({
     width: saved?.width || 1360,
     height: saved?.height || 860,
-    x: typeof saved?.x === "number" ? saved.x : undefined,
-    y: typeof saved?.y === "number" ? saved.y : undefined,
+    x: onScreen ? saved.x : undefined,
+    y: onScreen ? saved.y : undefined,
     minWidth: 960,
     minHeight: 620,
     title: "ARIA",

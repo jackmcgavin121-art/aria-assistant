@@ -503,20 +503,20 @@ const SLASH_COMMANDS = [
   { cmd: "/artifact", hint: "/artifact <type>", desc: "Generate a document from this chat (report, proposal, deck…)" },
 ];
 
-/** Returns true if the text was consumed as a slash command. */
-async function runSlashCommand(text: string, convId: string | null): Promise<boolean> {
+/** "handled" = consumed; "unknown" = looked like a command but isn't one; "not-slash" = send as a normal message. */
+async function runSlashCommand(text: string, convId: string | null): Promise<"handled" | "unknown" | "not-slash"> {
   const m = text.match(/^\/(\w+)\s*([\s\S]*)$/);
-  if (!m) return false;
+  if (!m) return "not-slash";
   const [, cmd, rest] = m;
   const store = useStore.getState();
   if (cmd === "task") {
-    if (!rest.trim()) { store.toast("Usage: /task <title>", "err"); return true; }
+    if (!rest.trim()) { store.toast("Usage: /task <title>", "err"); return "handled"; }
     addTask({ title: rest.trim() });
     store.toast("Task added", "ok");
-    return true;
+    return "handled";
   }
   if (cmd === "remember") {
-    if (!rest.trim()) { store.toast("Usage: /remember <fact>", "err"); return true; }
+    if (!rest.trim()) { store.toast("Usage: /remember <fact>", "err"); return "handled"; }
     useStore.setState({
       companyMemory: {
         ...store.companyMemory,
@@ -527,26 +527,26 @@ async function runSlashCommand(text: string, convId: string | null): Promise<boo
       },
     });
     store.toast("Noted in the learning log", "ok");
-    return true;
+    return "handled";
   }
   if (cmd === "artifact") {
     const q = rest.trim().toLowerCase();
     const type = ARTIFACT_TYPES.find((t) => t.id === q || t.name.toLowerCase().includes(q)) ?? ARTIFACT_TYPES[0];
     void generateArtifact(type.id);
-    return true;
+    return "handled";
   }
   if (cmd === "research") {
-    if (!rest.trim()) { store.toast("Usage: /research <question>", "err"); return true; }
+    if (!rest.trim()) { store.toast("Usage: /research <question>", "err"); return "handled"; }
     const research = await maybeRunWebResearch(rest.trim(), true);
     await sendMessage(rest.trim(), {
       convId: convId ?? undefined,
       apiContentOverride: research?.prompt,
       webSources: research?.sources,
     });
-    return true;
+    return "handled";
   }
   useStore.getState().toast(`Unknown command /${cmd} — try ${SLASH_COMMANDS.map((c) => c.cmd).join(", ")}`, "err");
-  return true;
+  return "unknown";
 }
 
 /** Set by the mounted Composer so drag-and-drop anywhere in the chat column attaches files. */
@@ -596,7 +596,15 @@ function Composer({ convId }: { convId: string | null }) {
     setSuggestion(null);
     if (taRef.current) taRef.current.style.height = "auto";
 
-    if (t.startsWith("/") && (await runSlashCommand(t, convId))) return;
+    if (t.startsWith("/")) {
+      const r = await runSlashCommand(t, convId);
+      if (r === "handled") return;
+      if (r === "unknown") {
+        // Give the typed text back so a typo ("/tsak …") isn't lost.
+        updateText(t);
+        return;
+      }
+    }
 
     const research = await maybeRunWebResearch(t);
     await sendMessage(t, {

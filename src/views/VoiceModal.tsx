@@ -114,7 +114,7 @@ export function VoiceModal({ onClose }: { onClose: () => void }) {
     if (!text.trim() || !hfActive.current) return;
     setTranscript(text.trim());
     setHfPhase("thinking");
-    await sendMessage(text.trim());
+    await sendMessage(text.trim(), { suppressTts: true });
     if (!hfActive.current) return;
     const st = useStore.getState();
     const list = st.activeConvId ? st.messages[st.activeConvId] ?? [] : [];

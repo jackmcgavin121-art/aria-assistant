@@ -6,7 +6,7 @@ import { useStore } from "../store/store";
 import { newConversation, openConversation } from "../features/chat";
 import { toggleTask } from "../features/tasks";
 import { activeTaskCount } from "../features/agentExec";
-import { fmtDate, fmtTime } from "../lib/util";
+import { fmtDate, fmtTime, plural } from "../lib/util";
 
 function greeting(): string {
   const h = new Date().getHours();
@@ -81,7 +81,7 @@ export function DashboardView() {
             {profile.name ? `, ${profile.name.split(" ")[0]}` : ""} ✦
           </h2>
           <div className="hint">
-            {fmtDate(Date.now())} · {week.sent} messages, {week.tasksDone + week.agentDone} tasks completed in the last 7 days
+            {fmtDate(Date.now())} · {plural(week.sent, "message")}, {plural(week.tasksDone + week.agentDone, "task")} completed in the last 7 days
           </div>
         </div>
         <div className="row">

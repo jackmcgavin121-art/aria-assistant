@@ -206,6 +206,10 @@ export interface SendOptions {
   /** Pre-flight replacement for the API content of the last user message (web research). */
   apiContentOverride?: string;
   webSources?: Message["webSources"];
+  /** Regenerate path: don't re-scan the same text for "remember…" signals. */
+  skipSignals?: boolean;
+  /** Hands-free voice speaks the reply itself — don't double up with auto-TTS. */
+  suppressTts?: boolean;
 }
 
 export async function sendMessage(text: string, opts: SendOptions = {}): Promise<void> {
@@ -225,7 +229,7 @@ export async function sendMessage(text: string, opts: SendOptions = {}): Promise
   const conv = s.conversations[convId];
   const agent = getAgent(opts.agentId !== undefined ? opts.agentId : conv.agentId);
 
-  detectLearningSignals(text);
+  if (!opts.skipSignals) detectLearningSignals(text);
 
   // Keep attachment content with the message so edit & resend / regenerate
   // can honestly re-send it (images only when small enough to persist sanely).
@@ -296,7 +300,7 @@ export async function sendMessage(text: string, opts: SendOptions = {}): Promise
           store.setState({ streamingConvId: null });
           currentStream = null;
           const st = store.getState();
-          if (st.settings.ttsEnabled) speak(markdownToText(full), st.settings.ttsVoice, st.settings.ttsRate);
+          if (st.settings.ttsEnabled && !opts.suppressTts) speak(markdownToText(full), st.settings.ttsVoice, st.settings.ttsRate);
           void autoTitleConversation(convId, text, full);
           resolve();
         },
@@ -404,6 +408,7 @@ export async function regenerateLast(convId: string): Promise<void> {
     attachmentMeta: userMsg.attachments,
     attachmentText: userMsg.attachmentText,
     images: userMsg.images,
+    skipSignals: true,
   });
 }
 

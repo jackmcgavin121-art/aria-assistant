@@ -37,7 +37,7 @@ export async function generateArtifact(typeId: string): Promise<Artifact | null>
 
   s.toast(`Generating ${type.name}…`, "info");
   const res = await completeOnce({
-    model: s.model,
+    model: agent?.model || s.model,
     maxTokens: Math.max(s.maxTokens, 3000),
     system,
     messages: [
