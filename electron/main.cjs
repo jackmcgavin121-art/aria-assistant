@@ -219,11 +219,13 @@ function registerIpc() {
     await fsp.writeFile(file, json, "utf8");
     return file;
   });
-  ipcMain.handle("store:exportBackup", async (e, json) => {
+  ipcMain.handle("store:exportBackup", async (e, json, defaultName) => {
     const win = BrowserWindow.fromWebContents(e.sender);
     const { canceled, filePath } = await dialog.showSaveDialog(win, {
-      title: "Export ARIA backup",
-      defaultPath: `aria-backup-${new Date().toISOString().slice(0, 10)}.json`,
+      title: "Export ARIA data",
+      defaultPath: typeof defaultName === "string" && defaultName
+        ? defaultName.replace(/[^\w.\- ]+/g, "")
+        : `aria-backup-${new Date().toISOString().slice(0, 10)}.json`,
       filters: [{ name: "JSON", extensions: ["json"] }],
     });
     if (canceled || !filePath) return null;
@@ -325,6 +327,24 @@ function registerIpc() {
   ipcMain.handle("app:setTrayTooltip", (_e, text) => {
     if (tray) tray.setToolTip(String(text || "ARIA").slice(0, 120));
     return true;
+  });
+
+  // Manual "check for updates now" from Settings → About.
+  ipcMain.handle("update:check", async () => {
+    if (!app.isPackaged) return { ok: false, error: "Update checks only work in the installed app." };
+    try {
+      const { autoUpdater } = require("electron-updater");
+      const r = await autoUpdater.checkForUpdates();
+      const latest = r && r.updateInfo ? r.updateInfo.version : null;
+      return {
+        ok: true,
+        current: app.getVersion(),
+        latest,
+        updateAvailable: !!latest && latest !== app.getVersion(),
+      };
+    } catch (e) {
+      return { ok: false, error: String(e && e.message ? e.message : e) };
+    }
   });
 
   ipcMain.handle("app:openBackups", async () => {

@@ -16,8 +16,10 @@ import { GlobalSearch } from "./views/GlobalSearch";
 import { ArtifactModal } from "./views/ArtifactModal";
 import { VoiceModal } from "./views/VoiceModal";
 import { PortalView } from "./views/PortalView";
+import { LoginScreen } from "./views/LoginScreen";
 import { Toasts } from "./components/Toasts";
 import { Modal } from "./components/Modal";
+import { logout } from "./lib/auth";
 import { initRecurringScheduler } from "./features/tasks";
 import { initProactiveChecks } from "./features/autonomy";
 import { activeTaskCount } from "./features/agentExec";
@@ -92,6 +94,8 @@ function TopBar({ onOpenArtifacts, onOpenVoice }: { onOpenArtifacts: () => void;
   const activeConvId = useStore((s) => s.activeConvId);
   const conv = useStore((s) => (s.activeConvId ? s.conversations[s.activeConvId] : undefined));
   const darkMode = useStore((s) => s.darkMode);
+  const currentUser = useStore((s) => s.currentUser);
+  const authEnabled = useStore((s) => s.settings.authEnabled);
   const label = view === "chat" ? conv?.title ?? "Chat" : NAV.find((n) => n.id === view)?.label ?? "";
   return (
     <div className="topbar">
@@ -99,6 +103,15 @@ function TopBar({ onOpenArtifacts, onOpenVoice }: { onOpenArtifacts: () => void;
       {view === "chat" && <AgentPicker />}
       {view === "chat" && activeConvId && <button className="btn sm" onClick={onOpenArtifacts}>📄 Artifacts</button>}
       <button className="btn sm" onClick={onOpenVoice}>🎤 Voice</button>
+      {authEnabled && currentUser && (
+        <button
+          className="btn sm"
+          title={`Signed in as ${currentUser.email} (${currentUser.role})`}
+          onClick={logout}
+        >
+          👤 {currentUser.name || currentUser.email.split("@")[0]} · Sign out
+        </button>
+      )}
       <button className="iconbtn" title="Toggle theme" onClick={() => useStore.setState({ darkMode: !darkMode })}>
         {darkMode ? "☀️" : "🌙"}
       </button>
@@ -146,6 +159,8 @@ export default function App() {
   const fontScale = useStore((s) => s.settings.fontScale);
   const closeToTray = useStore((s) => s.settings.closeToTray);
   const unreadAlerts = useStore((s) => s.proactiveAlerts.filter((a) => !a.read).length);
+  const authEnabled = useStore((s) => s.settings.authEnabled);
+  const currentUser = useStore((s) => s.currentUser);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", darkMode ? "dark" : "light");
@@ -226,6 +241,16 @@ export default function App() {
   }, []);
 
   if (bootStatus !== "ready") return <BootScreen />;
+
+  // Login gate: when Team access is on, nothing loads until someone signs in.
+  if (authEnabled && !currentUser) {
+    return (
+      <>
+        <LoginScreen />
+        <Toasts />
+      </>
+    );
+  }
 
   if (portalAgentId) {
     return (

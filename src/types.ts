@@ -267,6 +267,17 @@ export interface WorkspaceOrg {
   employees: { name: string; role?: string }[];
 }
 
+/** Local login account. Passwords are stored as salted PBKDF2 hashes, never plaintext. */
+export interface Account {
+  id: string;
+  email: string;
+  name?: string;
+  role: "admin" | "staff";
+  passHash: string;
+  salt: string;
+  createdAt: number;
+}
+
 export interface ProactiveAlert {
   id: string;
   agentId: string;
@@ -317,6 +328,8 @@ export interface Settings {
   notificationsEnabled: boolean;
   /** Last app version the user has seen — drives the "what's new" note after updates. */
   lastSeenVersion?: string;
+  /** When true, ARIA shows a login screen before the app opens (accounts in AppState.accounts). */
+  authEnabled?: boolean;
 }
 
 /** Real token usage accumulated from API responses: month (YYYY-MM) → model → totals. */
@@ -354,6 +367,7 @@ export interface AppState {
   artifacts: Record<string, Artifact>;
   settings: Settings;
   usage: UsageLog;
+  accounts: Account[];
   /** Untouched fields carried over from a v1 (ariaApp_v4) import so nothing is lost. */
   _legacy?: Record<string, unknown>;
 }

@@ -21,6 +21,8 @@ interface EphemeralState {
   view: ViewId;
   bootStatus: BootStatus;
   bootError?: string;
+  /** Who is signed in this app session (null = signed out; ignored unless settings.authEnabled). */
+  currentUser: { email: string; role: "admin" | "staff"; name?: string } | null;
   hasApiKey: boolean;
   streamingConvId: string | null;
   toasts: Toast[];
@@ -70,6 +72,7 @@ const PERSIST_KEYS: (keyof AppState)[] = [
   "artifacts",
   "settings",
   "usage",
+  "accounts",
   "_legacy",
 ];
 
@@ -77,6 +80,7 @@ export const useStore = create<Store>((set, get) => ({
   ...defaultState(),
   view: "home",
   bootStatus: "loading",
+  currentUser: null,
   hasApiKey: false,
   streamingConvId: null,
   toasts: [],
@@ -172,6 +176,11 @@ export function hydrate(data: any): AppState {
 
 /** Apply a parsed backup/import (either v1 ariaApp_v4 or v2) to the live store. */
 export async function applyImport(data: any): Promise<{ migrated: boolean }> {
+  // Guard: an organisation profile is NOT a full backup — hydrating it here
+  // would wipe conversations. Route the user to the right button instead.
+  if (data && typeof data === "object" && data.ariaOrgProfile) {
+    throw new Error("That file is an organisation profile — use “Import organisation profile” in Settings → Team access.");
+  }
   // V10-era "Export backup" wrapped the state: { ariaExport, version, ts, state }.
   if (data && typeof data === "object" && data.ariaExport && data.state && typeof data.state === "object") {
     data = data.state;

@@ -77,11 +77,11 @@ export function installDevShim() {
         return true;
       },
       autoBackup: async () => "(dev: backup skipped)",
-      exportBackup: async (json) => {
+      exportBackup: async (json, defaultName) => {
         const blob = new Blob([json], { type: "application/json" });
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
-        a.download = "aria-backup.json";
+        a.download = defaultName || "aria-backup.json";
         a.click();
         return "download";
       },

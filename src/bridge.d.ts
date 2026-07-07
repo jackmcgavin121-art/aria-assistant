@@ -12,7 +12,7 @@ export interface AriaBridge {
     save: (json: string) => Promise<boolean>;
     wipe: () => Promise<boolean>;
     autoBackup: (json: string, label?: string) => Promise<string>;
-    exportBackup: (json: string) => Promise<string | null>;
+    exportBackup: (json: string, defaultName?: string) => Promise<string | null>;
     importBackup: () => Promise<string | null>;
   };
   secrets: {
@@ -42,6 +42,10 @@ export interface AriaBridge {
   updates?: {
     onEvent: (cb: (payload: { type: "available" | "downloaded"; info: { version: string } }) => void) => void;
     install: () => Promise<void>;
+    check?: () => Promise<
+      | { ok: true; current: string; latest: string | null; updateAvailable: boolean }
+      | { ok: false; error?: string }
+    >;
   };
   app: {
     info: () => Promise<{ version: string; platform: string; userData: string; packaged: boolean }>;

@@ -327,3 +327,11 @@ button { font-family: inherit; }
 .usage-table th { text-align: right; color: var(--tx3); font-weight: 600; padding: 4px 8px; border-bottom: 1px solid var(--bd); }
 .usage-table th:first-child, .usage-table td:first-child { text-align: left; }
 .usage-table td { text-align: right; padding: 4px 8px; border-bottom: 1px solid var(--bd); }
+
+/* ---------- login gate ---------- */
+.login-screen { height: 100%; display: flex; align-items: center; justify-content: center; background: var(--bg2); }
+.login-card {
+  width: 340px; background: var(--bg); border: 1px solid var(--bd2); border-radius: var(--r3);
+  box-shadow: var(--shadow-lg); padding: 28px 26px;
+}
+.login-err { color: var(--err); font-size: 12.5px; margin: 8px 0 0; }

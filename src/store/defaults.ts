@@ -76,6 +76,7 @@ export function defaultState(): AppState {
     artifacts: {},
     settings: defaultSettings(),
     usage: {},
+    accounts: [],
   };
 }
 

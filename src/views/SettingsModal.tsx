@@ -5,6 +5,8 @@ import { Modal, ConfirmModal } from "../components/Modal";
 import { hashPw, fmtDate } from "../lib/util";
 import { listVoices, speak, ttsSupported } from "../lib/tts";
 import { restoreConversation, purgeConversation } from "../features/chat";
+import { createAccount, removeAccount, resetPassword, enableAuth, disableAuth } from "../lib/auth";
+import { exportOrgProfile, importOrgProfile } from "../features/orgProfile";
 
 const TABS = [
   { id: "profile", label: "Profile" },
@@ -13,9 +15,14 @@ const TABS = [
   { id: "voice", label: "Voice" },
   { id: "workspace", label: "Workspace" },
   { id: "web", label: "Web research" },
+  { id: "team", label: "Team access" },
   { id: "admin", label: "Admin" },
   { id: "data", label: "Data" },
+  { id: "about", label: "About" },
 ];
+
+/** Staff accounts get the day-to-day tabs; keys, account management and data live with admins. */
+const STAFF_HIDDEN_TABS = new Set(["ai", "team", "admin", "data"]);
 
 /** Published per-MTok USD rates for cost estimates (cache read = 10% of input, write = 125%). */
 const PRICES: { match: RegExp; in: number; out: number }[] = [
@@ -165,6 +172,181 @@ function SecretField({ name, label, hint }: { name: string; label: string; hint?
   );
 }
 
+function TeamAccessTab() {
+  const accounts = useStore((s) => s.accounts);
+  const authEnabled = useStore((s) => s.settings.authEnabled);
+  const currentUser = useStore((s) => s.currentUser);
+  const toast = useStore((s) => s.toast);
+  const [email, setEmail] = useState("");
+  const [name, setName] = useState("");
+  const [pw, setPw] = useState("");
+  const [role, setRole] = useState<"staff" | "admin">("staff");
+  const [resetting, setResetting] = useState<string | null>(null);
+  const [resetPw, setResetPw] = useState("");
+  const [confirmOff, setConfirmOff] = useState(false);
+
+  const addAccount = async () => {
+    const err = authEnabled || accounts.some((a) => a.role === "admin")
+      ? await createAccount(email, pw, role, name)
+      : await enableAuth(email, pw, name); // first account turns the gate on and signs you in
+    if (err) toast(err, "err");
+    else {
+      toast(authEnabled ? `Account added for ${email.trim()}` : "Login is now ON — you're signed in as the admin", "ok");
+      setEmail(""); setName(""); setPw("");
+    }
+  };
+
+  return (
+    <div style={{ maxWidth: 560 }}>
+      <p className="hint">
+        Give each person their own sign-in for ARIA on this PC. Admins manage accounts, keys and data;
+        staff get the day-to-day app. Honest limits: this locks the app's <i>interface</i> — it does not
+        encrypt the data files on disk, and there's no server behind it. To set up a staff PC, install ARIA
+        there and import your organisation profile (below) — accounts, agents and company context come across.
+      </p>
+
+      <h3 style={{ margin: "12px 0 4px" }}>
+        🔐 Login {authEnabled ? <span className="tag ok">ON</span> : <span className="tag">OFF</span>}
+      </h3>
+      {!authEnabled && accounts.length === 0 && (
+        <p className="hint">Create the first account below — it becomes the admin and turns the login screen on.
+          <b> If every admin password is forgotten there is no recovery</b> short of deleting the app's data, so
+          store it somewhere safe.</p>
+      )}
+      {authEnabled && (
+        <button className="btn sm" onClick={() => setConfirmOff(true)}>Turn login off</button>
+      )}
+      {confirmOff && (
+        <ConfirmModal
+          title="Turn login off?"
+          body="ARIA will open straight into the app for anyone at this PC. Accounts are kept and can be turned back on later."
+          confirmLabel="Turn off"
+          onClose={() => setConfirmOff(false)}
+          onConfirm={() => { disableAuth(); toast("Login turned off", "ok"); }}
+        />
+      )}
+
+      <h3 style={{ margin: "14px 0 4px" }}>👥 Accounts ({accounts.length})</h3>
+      {accounts.map((a) => (
+        <div key={a.id} className="row" style={{ padding: "4px 0", gap: 8, flexWrap: "wrap" }}>
+          <span className="grow">
+            {a.role === "admin" ? "🛡" : "👤"} <b>{a.name || a.email}</b>{" "}
+            <span className="hint">{a.email} · {a.role}{currentUser?.email === a.email ? " · you" : ""}</span>
+          </span>
+          {resetting === a.id ? (
+            <>
+              <input className="input" style={{ width: 150 }} type="password" placeholder="New password" value={resetPw} autoFocus onChange={(e) => setResetPw(e.target.value)} />
+              <button className="btn sm primary" onClick={async () => {
+                const err = await resetPassword(a.id, resetPw);
+                if (err) toast(err, "err");
+                else { toast(`Password reset for ${a.email}`, "ok"); setResetting(null); setResetPw(""); }
+              }}>Save</button>
+              <button className="btn sm" onClick={() => { setResetting(null); setResetPw(""); }}>Cancel</button>
+            </>
+          ) : (
+            <>
+              <button className="btn sm" onClick={() => { setResetting(a.id); setResetPw(""); }}>Reset password</button>
+              <button className="btn sm danger" onClick={() => {
+                const err = removeAccount(a.id);
+                if (err) toast(err, "err");
+              }}>Remove</button>
+            </>
+          )}
+        </div>
+      ))}
+      {accounts.length === 0 && <p className="hint">No accounts yet.</p>}
+
+      <h3 style={{ margin: "14px 0 4px" }}>＋ Add {accounts.length === 0 ? "the admin account" : "a person"}</h3>
+      <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
+        <input className="input" style={{ flex: "1 1 170px" }} placeholder="email@company.com" value={email} onChange={(e) => setEmail(e.target.value)} />
+        <input className="input" style={{ flex: "1 1 120px" }} placeholder="Name (optional)" value={name} onChange={(e) => setName(e.target.value)} />
+        <input className="input" style={{ flex: "1 1 130px" }} type="password" placeholder="Password" value={pw} onChange={(e) => setPw(e.target.value)} />
+        {accounts.length > 0 && (
+          <select className="input" style={{ width: 92 }} value={role} onChange={(e) => setRole(e.target.value as "staff" | "admin")}>
+            <option value="staff">staff</option>
+            <option value="admin">admin</option>
+          </select>
+        )}
+        <button className="btn primary sm" disabled={!email.trim() || !pw} onClick={() => void addAccount()}>Add</button>
+      </div>
+      <p className="hint" style={{ marginTop: 4 }}>You choose each person's password and tell it to them; they can't change it themselves — you reset it here.</p>
+
+      <hr className="divider" />
+      <h3 style={{ margin: "0 0 4px" }}>🏢 Organisation profile</h3>
+      <p className="hint">
+        One file with your workspace org chart, business profile, all agents and their bios, and the login
+        accounts. Export it here, import it on a staff PC — no conversations or documents are included.
+      </p>
+      <div className="row" style={{ flexWrap: "wrap" }}>
+        <button className="btn" onClick={() => void exportOrgProfile()}>⬇ Export organisation profile</button>
+        <button className="btn" onClick={async () => {
+          const raw = await window.aria.store.importBackup();
+          if (!raw) return;
+          try {
+            const r = importOrgProfile(JSON.parse(raw));
+            await flushSave();
+            toast(`Organisation profile imported — ${r.agentsUpdated} agents updated, ${r.agentsAdded} added${r.accounts ? `, ${r.accounts} login accounts` : ""}.`, "ok");
+          } catch (e: any) {
+            toast("Import failed: " + e.message, "err");
+          }
+        }}>⬆ Import organisation profile</button>
+      </div>
+    </div>
+  );
+}
+
+function AboutTab() {
+  const toast = useStore((s) => s.toast);
+  const [info, setInfo] = useState<{ version: string; userData: string; packaged: boolean } | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [checkResult, setCheckResult] = useState<string>("");
+
+  useEffect(() => {
+    void window.aria.app.info().then((i) => setInfo(i));
+  }, []);
+
+  const checkNow = async () => {
+    if (!window.aria.updates?.check) {
+      setCheckResult("Update checks only work in the installed desktop app.");
+      return;
+    }
+    setChecking(true);
+    setCheckResult("");
+    const r = await window.aria.updates.check();
+    setChecking(false);
+    if (!r.ok) setCheckResult(r.error ?? "Update check failed.");
+    else if (r.updateAvailable) {
+      setCheckResult(`Version ${r.latest} is available — downloading in the background. You'll get a "Restart now" prompt when it's ready.`);
+      toast(`Update ${r.latest} found — downloading…`, "info");
+    } else setCheckResult(`You're on the latest version (${r.current}).`);
+  };
+
+  return (
+    <div style={{ maxWidth: 520 }}>
+      <h3 style={{ margin: "0 0 4px" }}>✦ ARIA {info ? `v${info.version}` : ""}</h3>
+      <p className="hint">AI business assistant — local-first, your data stays on this machine.</p>
+      <div className="row" style={{ flexWrap: "wrap", marginTop: 8 }}>
+        <button className="btn" disabled={checking} onClick={() => void checkNow()}>
+          {checking ? "Checking…" : "🔄 Check for updates now"}
+        </button>
+        <button className="btn" onClick={() => void window.aria.app.openExternal("https://github.com/jackmcgavin121-art/aria-assistant/releases")}>
+          📋 Release notes
+        </button>
+      </div>
+      {checkResult && <p className="hint" style={{ marginTop: 8 }}>{checkResult}</p>}
+      <p className="hint" style={{ marginTop: 10 }}>
+        Updates install automatically: ARIA checks shortly after launch and every 4 hours, downloads in the
+        background, and asks to restart when ready.
+      </p>
+      {info && (
+        <p className="hint" style={{ marginTop: 10, fontFamily: "var(--mono)", fontSize: 11 }}>
+          Data folder: {info.userData}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function SettingsModal({ onClose }: { onClose: () => void }) {
   const s = useStore();
   const tab = s.settingsTab;
@@ -188,10 +370,19 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const patchRules = (patch: Partial<typeof s.settings.adminRules>) =>
     patchSettings({ adminRules: { ...useStore.getState().settings.adminRules, ...patch } });
 
+  // Staff see a trimmed settings surface; admins (or auth off) see everything.
+  const isStaff = !!s.settings.authEnabled && s.currentUser?.role === "staff";
+  const visibleTabs = TABS.filter((t) => !isStaff || !STAFF_HIDDEN_TABS.has(t.id));
+
+  // If a staff user lands on a hidden tab (e.g. via a palette action), bounce to Profile.
+  useEffect(() => {
+    if (isStaff && STAFF_HIDDEN_TABS.has(tab)) setTab("profile");
+  }, [isStaff, tab]);
+
   return (
     <Modal title="Settings" onClose={onClose} wide>
       <div className="tabs">
-        {TABS.map((t) => (
+        {visibleTabs.map((t) => (
           <button key={t.id} className={"tab" + (tab === t.id ? " on" : "")} onClick={() => setTab(t.id)}>{t.label}</button>
         ))}
       </div>
@@ -222,7 +413,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
         </div>
       )}
 
-      {tab === "ai" && (
+      {tab === "ai" && !isStaff && (
         <div style={{ maxWidth: 540 }}>
           <SecretField
             name="anthropicApiKey"
@@ -308,7 +499,11 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
         </div>
       )}
 
-      {tab === "admin" && (
+      {tab === "team" && !isStaff && <TeamAccessTab />}
+
+      {tab === "about" && <AboutTab />}
+
+      {tab === "admin" && !isStaff && (
         <div style={{ maxWidth: 540 }}>
           <p className="hint">
             Admin rules constrain every agent's behaviour (useful when others use this machine).
@@ -337,7 +532,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
         </div>
       )}
 
-      {tab === "data" && (
+      {tab === "data" && !isStaff && (
         <div style={{ maxWidth: 540 }}>
           <p className="hint">All your data lives on this machine in the app's data folder. No account, no cloud.</p>
           <div className="row" style={{ marginTop: 12, flexWrap: "wrap" }}>

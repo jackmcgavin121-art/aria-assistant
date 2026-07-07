@@ -22,7 +22,7 @@ contextBridge.exposeInMainWorld("aria", {
     save: (json) => ipcRenderer.invoke("store:save", json),
     wipe: () => ipcRenderer.invoke("store:wipe"),
     autoBackup: (json, label) => ipcRenderer.invoke("store:autoBackup", json, label),
-    exportBackup: (json) => ipcRenderer.invoke("store:exportBackup", json),
+    exportBackup: (json, defaultName) => ipcRenderer.invoke("store:exportBackup", json, defaultName),
     importBackup: () => ipcRenderer.invoke("store:importBackup"),
   },
   secrets: {
@@ -54,6 +54,7 @@ contextBridge.exposeInMainWorld("aria", {
       ipcRenderer.on("update:event", (_e, payload) => cb(payload));
     },
     install: () => ipcRenderer.invoke("update:install"),
+    check: () => ipcRenderer.invoke("update:check"),
   },
   app: {
     info: () => ipcRenderer.invoke("app:info"),
