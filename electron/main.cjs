@@ -21,6 +21,14 @@ const WINSTATE_FILE = () => path.join(userData(), "window-state.json");
 async function readState() {
   try {
     const raw = await fsp.readFile(STATE_FILE(), "utf8");
+    // A zero-byte/blank file has nothing to protect: set it aside and boot
+    // fresh instead of stranding the user on an error screen.
+    if (!raw.trim()) {
+      await fsp
+        .rename(STATE_FILE(), STATE_FILE() + ".empty-" + new Date().toISOString().slice(0, 10))
+        .catch(() => {});
+      return null;
+    }
     return raw;
   } catch (e) {
     if (e.code === "ENOENT") return null;
@@ -241,6 +249,56 @@ function registerIpc() {
     });
     if (canceled || !filePaths.length) return null;
     return fsp.readFile(filePaths[0], "utf8");
+  });
+
+  // Recovery from the boot error screen: swap in the newest parseable backup.
+  ipcMain.handle("store:restoreLatestBackup", async () => {
+    const dir = BACKUP_DIR();
+    const files = (await fsp.readdir(dir).catch(() => [])).filter((f) => f.endsWith(".json"));
+    const stats = await Promise.all(
+      files.map(async (f) => ({ f, m: (await fsp.stat(path.join(dir, f))).mtimeMs }))
+    );
+    stats.sort((a, b) => b.m - a.m);
+    for (const { f } of stats) {
+      const raw = await fsp.readFile(path.join(dir, f), "utf8").catch(() => null);
+      if (raw && raw.trim()) {
+        try {
+          JSON.parse(raw);
+          const cur = await fsp.readFile(STATE_FILE(), "utf8").catch(() => null);
+          if (cur !== null) {
+            await fsp.writeFile(STATE_FILE() + ".replaced-" + Date.now(), cur, "utf8").catch(() => {});
+          }
+          await writeState(raw);
+          return { ok: true, name: f };
+        } catch {
+          /* try the next backup */
+        }
+      }
+    }
+    return { ok: false, error: "No usable backup found in " + dir };
+  });
+
+  // Recovery: replace the state file with a user-chosen backup file.
+  ipcMain.handle("store:replaceFromFile", async (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+      title: "Choose an ARIA backup to restore",
+      filters: [{ name: "JSON", extensions: ["json"] }],
+      properties: ["openFile"],
+    });
+    if (canceled || !filePaths.length) return { ok: false, error: "cancelled" };
+    try {
+      const raw = await fsp.readFile(filePaths[0], "utf8");
+      JSON.parse(raw); // must at least be valid JSON
+      const cur = await fsp.readFile(STATE_FILE(), "utf8").catch(() => null);
+      if (cur !== null) {
+        await fsp.writeFile(STATE_FILE() + ".replaced-" + Date.now(), cur, "utf8").catch(() => {});
+      }
+      await writeState(raw);
+      return { ok: true, name: path.basename(filePaths[0]) };
+    } catch (err) {
+      return { ok: false, error: String(err && err.message ? err.message : err) };
+    }
   });
 
   ipcMain.handle("secret:set", (_e, name, value) => {

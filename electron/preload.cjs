@@ -24,6 +24,8 @@ contextBridge.exposeInMainWorld("aria", {
     autoBackup: (json, label) => ipcRenderer.invoke("store:autoBackup", json, label),
     exportBackup: (json, defaultName) => ipcRenderer.invoke("store:exportBackup", json, defaultName),
     importBackup: () => ipcRenderer.invoke("store:importBackup"),
+    restoreLatestBackup: () => ipcRenderer.invoke("store:restoreLatestBackup"),
+    replaceFromFile: () => ipcRenderer.invoke("store:replaceFromFile"),
   },
   secrets: {
     set: (name, value) => ipcRenderer.invoke("secret:set", name, value),

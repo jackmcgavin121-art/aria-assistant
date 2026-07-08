@@ -122,14 +122,54 @@ function TopBar({ onOpenArtifacts, onOpenVoice }: { onOpenArtifacts: () => void;
 function BootScreen() {
   const bootStatus = useStore((s) => s.bootStatus);
   const bootError = useStore((s) => s.bootError);
+  const [recovering, setRecovering] = useState(false);
+  const [recoverMsg, setRecoverMsg] = useState("");
+
+  const restoreLatest = async () => {
+    if (!window.aria.store.restoreLatestBackup) return;
+    setRecovering(true);
+    const r = await window.aria.store.restoreLatestBackup();
+    if (r.ok) window.location.reload();
+    else {
+      setRecovering(false);
+      setRecoverMsg(r.error);
+    }
+  };
+  const restoreFromFile = async () => {
+    if (!window.aria.store.replaceFromFile) return;
+    setRecovering(true);
+    const r = await window.aria.store.replaceFromFile();
+    if (r.ok) window.location.reload();
+    else {
+      setRecovering(false);
+      if (r.error !== "cancelled") setRecoverMsg(r.error);
+    }
+  };
+
   if (bootStatus === "storage_error") {
     return (
       <div className="empty-state">
         <div className="big">⚠️</div>
         <h2>Couldn't read your saved data</h2>
-        <p className="hint" style={{ maxWidth: 420 }}>
+        <p className="hint" style={{ maxWidth: 440 }}>
           The data file exists but couldn't be loaded, so ARIA stopped rather than overwrite it.
           Error: {bootError}
+        </p>
+        <div className="row" style={{ justifyContent: "center", flexWrap: "wrap" }}>
+          {window.aria.store.restoreLatestBackup && (
+            <button className="btn primary" disabled={recovering} onClick={() => void restoreLatest()}>
+              {recovering ? "Restoring…" : "↩ Restore latest automatic backup"}
+            </button>
+          )}
+          {window.aria.store.replaceFromFile && (
+            <button className="btn" disabled={recovering} onClick={() => void restoreFromFile()}>
+              📂 Restore from a backup file…
+            </button>
+          )}
+        </div>
+        {recoverMsg && <p className="hint" style={{ maxWidth: 440 }}>{recoverMsg}</p>}
+        <p className="hint" style={{ maxWidth: 440 }}>
+          Restoring keeps a copy of the current (broken) file next to it, so nothing is lost either way.
         </p>
       </div>
     );

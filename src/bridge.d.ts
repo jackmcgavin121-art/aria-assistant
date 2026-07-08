@@ -14,6 +14,8 @@ export interface AriaBridge {
     autoBackup: (json: string, label?: string) => Promise<string>;
     exportBackup: (json: string, defaultName?: string) => Promise<string | null>;
     importBackup: () => Promise<string | null>;
+    restoreLatestBackup?: () => Promise<{ ok: true; name: string } | { ok: false; error: string }>;
+    replaceFromFile?: () => Promise<{ ok: true; name: string } | { ok: false; error: string }>;
   };
   secrets: {
     set: (name: string, value: string) => Promise<boolean>;
