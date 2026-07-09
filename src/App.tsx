@@ -201,6 +201,9 @@ export default function App() {
   const unreadAlerts = useStore((s) => s.proactiveAlerts.filter((a) => !a.read).length);
   const authEnabled = useStore((s) => s.settings.authEnabled);
   const currentUser = useStore((s) => s.currentUser);
+  const firstRun = useStore(
+    (s) => !s.settings.authEnabled && !s.settings.onboarded && !s.settings.authSetupDismissed && s.accounts.length === 0
+  );
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", darkMode ? "dark" : "light");
@@ -251,6 +254,26 @@ export default function App() {
     });
   }, [bootStatus]);
 
+  // Idle auto sign-out (Settings → Team access). Any input resets the clock.
+  const idleLogoutMinutes = useStore((s) => s.settings.idleLogoutMinutes ?? 0);
+  useEffect(() => {
+    if (!authEnabled || !currentUser || !idleLogoutMinutes) return;
+    let last = Date.now();
+    const bump = () => { last = Date.now(); };
+    const events = ["mousemove", "mousedown", "keydown", "wheel", "touchstart"] as const;
+    for (const ev of events) window.addEventListener(ev, bump, { passive: true });
+    const timer = window.setInterval(() => {
+      if (Date.now() - last >= idleLogoutMinutes * 60_000) {
+        logout();
+        useStore.getState().toast("Signed out after inactivity.", "info");
+      }
+    }, 15_000);
+    return () => {
+      window.clearInterval(timer);
+      for (const ev of events) window.removeEventListener(ev, bump);
+    };
+  }, [authEnabled, currentUser, idleLogoutMinutes]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
@@ -283,7 +306,9 @@ export default function App() {
   if (bootStatus !== "ready") return <BootScreen />;
 
   // Login gate: when Team access is on, nothing loads until someone signs in.
-  if (authEnabled && !currentUser) {
+  // Fresh installs also land here (admin/staff chooser) until they set up a
+  // workspace, join one, or skip ("just me on this PC").
+  if ((authEnabled || firstRun) && !currentUser) {
     return (
       <>
         <LoginScreen />

@@ -335,3 +335,18 @@ button { font-family: inherit; }
   box-shadow: var(--shadow-lg); padding: 28px 26px;
 }
 .login-err { color: var(--err); font-size: 12.5px; margin: 8px 0 0; }
+.login-card.wide { width: 460px; }
+.login-choose { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.login-role {
+  display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 18px 12px;
+  background: var(--bg2); border: 1px solid var(--bd2); border-radius: var(--r3);
+  cursor: pointer; font: inherit; color: var(--tx); text-align: center;
+}
+.login-role:hover { border-color: var(--ac); background: var(--ac-l); }
+.login-role .big { font-size: 28px; }
+.login-card a { color: var(--ac); }
+.login-reckey {
+  font-family: var(--mono); font-size: 15px; text-align: center; letter-spacing: 1px;
+  background: var(--bg2); border: 1px dashed var(--bd2); border-radius: var(--r2);
+  padding: 12px 8px; margin-top: 10px; user-select: all;
+}

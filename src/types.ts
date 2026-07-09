@@ -278,6 +278,23 @@ export interface Account {
   createdAt: number;
 }
 
+/**
+ * Invite code an admin hands to a staff member so they can create their own
+ * account (and pick their own password) on first sign-in. Single-use, expires.
+ * Travels inside the organisation profile so staff PCs can redeem it.
+ */
+export interface Invite {
+  id: string;
+  code: string; // short human-typable code, e.g. "KRTX-29MF"
+  role: "admin" | "staff";
+  /** Optional label so the admin remembers who it's for. */
+  forName?: string;
+  createdAt: number;
+  expiresAt: number;
+  usedByEmail?: string;
+  usedAt?: number;
+}
+
 export interface ProactiveAlert {
   id: string;
   agentId: string;
@@ -330,6 +347,16 @@ export interface Settings {
   lastSeenVersion?: string;
   /** When true, ARIA shows a login screen before the app opens (accounts in AppState.accounts). */
   authEnabled?: boolean;
+  /** First-run chooser was skipped ("just me on this PC") — don't show it again. */
+  authSetupDismissed?: boolean;
+  /** Last email signed in on this machine — pre-filled on the login screen (never the password). */
+  lastLoginEmail?: string;
+  /** Auto sign-out after this many minutes without keyboard/mouse activity. 0/undefined = off. */
+  idleLogoutMinutes?: number;
+  /** Salted hash of the admin recovery key (shown once at workspace setup, never stored in plain). */
+  recoveryKey?: { salt: string; hash: string; createdAt: number };
+  /** Failed-login throttle for this machine: escalating lockout after repeated wrong passwords. */
+  loginThrottle?: { fails: number; lockedUntil: number };
 }
 
 /** Real token usage accumulated from API responses: month (YYYY-MM) → model → totals. */
@@ -368,6 +395,7 @@ export interface AppState {
   settings: Settings;
   usage: UsageLog;
   accounts: Account[];
+  invites: Invite[];
   /** Untouched fields carried over from a v1 (ariaApp_v4) import so nothing is lost. */
   _legacy?: Record<string, unknown>;
 }

@@ -5,7 +5,7 @@
 // Conversations, tasks, and knowledge documents are NOT included — those
 // stay in full backups.
 import { useStore } from "../store/store";
-import type { Account, Agent, BusinessProfile, WorkspaceOrg } from "../types";
+import type { Account, Agent, BusinessProfile, Invite, WorkspaceOrg } from "../types";
 import { uid } from "../lib/util";
 
 /** The agent fields that define who the agent is (its "bio") — no runtime state. */
@@ -34,6 +34,8 @@ export interface OrgProfileFile {
   businessProfile: BusinessProfile;
   agents: AgentBio[];
   accounts: Account[];
+  /** Unused invite codes so a staff PC can redeem them (added v2.4). */
+  invites?: Invite[];
   authEnabled: boolean;
 }
 
@@ -71,6 +73,7 @@ export async function exportOrgProfile(): Promise<void> {
     businessProfile: s.businessProfile,
     agents: s.agents.map(agentBio),
     accounts: s.accounts,
+    invites: s.invites.filter((i) => !i.usedAt && i.expiresAt > Date.now()),
     authEnabled: !!s.settings.authEnabled,
   };
   const name = `aria-org-profile-${new Date().toISOString().slice(0, 10)}.json`;
@@ -114,8 +117,16 @@ export function importOrgProfile(data: any): { agentsUpdated: number; agentsAdde
     ? data.accounts.filter((a: any) => a && a.email && a.passHash && a.salt)
     : [];
 
+  // Merge unused imported invites with local ones (dedupe by code).
+  const importedInvites: Invite[] = Array.isArray(data.invites)
+    ? data.invites.filter((i: any) => i && i.code && !i.usedAt)
+    : [];
+  const localCodes = new Set(s.invites.map((i) => i.code));
+  const invites = [...s.invites, ...importedInvites.filter((i) => !localCodes.has(i.code))];
+
   useStore.setState({
     agents,
+    invites,
     workspace: data.workspace ?? s.workspace,
     businessProfile: { ...s.businessProfile, ...(data.businessProfile ?? {}) },
     ...(accounts.length ? { accounts } : {}),

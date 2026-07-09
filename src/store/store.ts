@@ -73,6 +73,7 @@ const PERSIST_KEYS: (keyof AppState)[] = [
   "settings",
   "usage",
   "accounts",
+  "invites",
   "_legacy",
 ];
 

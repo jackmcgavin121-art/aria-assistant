@@ -5,7 +5,16 @@ import { Modal, ConfirmModal } from "../components/Modal";
 import { hashPw, fmtDate } from "../lib/util";
 import { listVoices, speak, ttsSupported } from "../lib/tts";
 import { restoreConversation, purgeConversation } from "../features/chat";
-import { createAccount, removeAccount, resetPassword, enableAuth, disableAuth } from "../lib/auth";
+import {
+  createAccount,
+  removeAccount,
+  resetPassword,
+  enableAuth,
+  disableAuth,
+  createInvite,
+  revokeInvite,
+  generateRecoveryKey,
+} from "../lib/auth";
 import { exportOrgProfile, importOrgProfile } from "../features/orgProfile";
 
 const TABS = [
@@ -174,7 +183,10 @@ function SecretField({ name, label, hint }: { name: string; label: string; hint?
 
 function TeamAccessTab() {
   const accounts = useStore((s) => s.accounts);
+  const invites = useStore((s) => s.invites);
   const authEnabled = useStore((s) => s.settings.authEnabled);
+  const hasRecoveryKey = useStore((s) => !!s.settings.recoveryKey);
+  const idleLogoutMinutes = useStore((s) => s.settings.idleLogoutMinutes ?? 0);
   const currentUser = useStore((s) => s.currentUser);
   const toast = useStore((s) => s.toast);
   const [email, setEmail] = useState("");
@@ -184,15 +196,25 @@ function TeamAccessTab() {
   const [resetting, setResetting] = useState<string | null>(null);
   const [resetPw, setResetPw] = useState("");
   const [confirmOff, setConfirmOff] = useState(false);
+  const [inviteRole, setInviteRole] = useState<"staff" | "admin">("staff");
+  const [inviteName, setInviteName] = useState("");
+  const [shownKey, setShownKey] = useState(""); // recovery key, displayed once
+  const [confirmNewKey, setConfirmNewKey] = useState(false);
+
+  const activeInviteList = invites.filter((i) => !i.usedAt && i.expiresAt > Date.now());
 
   const addAccount = async () => {
-    const err = authEnabled || accounts.some((a) => a.role === "admin")
-      ? await createAccount(email, pw, role, name)
-      : await enableAuth(email, pw, name); // first account turns the gate on and signs you in
+    const first = !(authEnabled || accounts.some((a) => a.role === "admin"));
+    const err = first
+      ? await enableAuth(email, pw, name) // first account turns the gate on and signs you in
+      : await createAccount(email, pw, role, name);
     if (err) toast(err, "err");
     else {
-      toast(authEnabled ? `Account added for ${email.trim()}` : "Login is now ON — you're signed in as the admin", "ok");
+      toast(first ? "Login is now ON — you're signed in as the admin" : `Account added for ${email.trim()}`, "ok");
       setEmail(""); setName(""); setPw("");
+      if (first && !useStore.getState().settings.recoveryKey) {
+        setShownKey(await generateRecoveryKey());
+      }
     }
   };
 
@@ -210,11 +232,23 @@ function TeamAccessTab() {
       </h3>
       {!authEnabled && accounts.length === 0 && (
         <p className="hint">Create the first account below — it becomes the admin and turns the login screen on.
-          <b> If every admin password is forgotten there is no recovery</b> short of deleting the app's data, so
-          store it somewhere safe.</p>
+          You'll also get a one-time <b>recovery key</b>: the only way back in if every admin password is
+          forgotten, so store it somewhere safe.</p>
       )}
       {authEnabled && (
         <button className="btn sm" onClick={() => setConfirmOff(true)}>Turn login off</button>
+      )}
+      {!authEnabled && accounts.some((a) => a.role === "admin") && (
+        <button
+          className="btn sm"
+          onClick={() => {
+            const s = useStore.getState();
+            useStore.setState({ settings: { ...s.settings, authEnabled: true } });
+            toast("Login is ON — the sign-in screen appears now.", "ok");
+          }}
+        >
+          Turn login on
+        </button>
       )}
       {confirmOff && (
         <ConfirmModal
@@ -269,7 +303,107 @@ function TeamAccessTab() {
         )}
         <button className="btn primary sm" disabled={!email.trim() || !pw} onClick={() => void addAccount()}>Add</button>
       </div>
-      <p className="hint" style={{ marginTop: 4 }}>You choose each person's password and tell it to them; they can't change it themselves — you reset it here.</p>
+      <p className="hint" style={{ marginTop: 4 }}>
+        You set the password here — or hand them an invite code below and they pick their own on first sign-in.
+      </p>
+
+      {authEnabled && (
+        <>
+          <h3 style={{ margin: "14px 0 4px" }}>🎟 Invite codes</h3>
+          <p className="hint">
+            Single-use codes (valid 7 days). The person chooses "Join with an invite code" on the sign-in
+            screen and picks their own password. On another PC, export the organisation profile after creating
+            the code — unused codes travel with it.
+          </p>
+          <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
+            <input className="input" style={{ flex: "1 1 140px" }} placeholder="Who's it for? (optional)" value={inviteName} onChange={(e) => setInviteName(e.target.value)} />
+            <select className="input" style={{ width: 92 }} value={inviteRole} onChange={(e) => setInviteRole(e.target.value as "staff" | "admin")}>
+              <option value="staff">staff</option>
+              <option value="admin">admin</option>
+            </select>
+            <button
+              className="btn primary sm"
+              onClick={async () => {
+                const code = createInvite(inviteRole, inviteName);
+                setInviteName("");
+                try {
+                  await navigator.clipboard.writeText(code);
+                  toast(`Invite code ${code} created and copied`, "ok");
+                } catch {
+                  toast(`Invite code ${code} created — copy it from the list below`, "ok");
+                }
+              }}
+            >
+              Create code
+            </button>
+          </div>
+          {activeInviteList.map((i) => (
+            <div key={i.id} className="row" style={{ padding: "4px 0", gap: 8 }}>
+              <span className="grow">
+                <span style={{ fontFamily: "var(--mono)" }}>{i.code}</span>{" "}
+                <span className="hint">
+                  {i.role}{i.forName ? ` · for ${i.forName}` : ""} · expires {fmtDate(i.expiresAt)}
+                </span>
+              </span>
+              <button className="btn sm" onClick={async () => { try { await navigator.clipboard.writeText(i.code); toast("Code copied", "ok"); } catch { toast("Couldn't reach the clipboard — copy the code by hand.", "err"); } }}>Copy</button>
+              <button className="btn sm danger" onClick={() => revokeInvite(i.id)}>Revoke</button>
+            </div>
+          ))}
+
+          <h3 style={{ margin: "14px 0 4px" }}>🔑 Recovery key {hasRecoveryKey ? <span className="tag ok">set</span> : <span className="tag warn">not set</span>}</h3>
+          <p className="hint">
+            The only way to reset an admin password if everyone is locked out. Shown once when generated —
+            ARIA keeps only a hash. Generating a new one invalidates the old.
+          </p>
+          <button className="btn sm" onClick={() => setConfirmNewKey(true)}>
+            {hasRecoveryKey ? "Generate a new recovery key" : "Generate recovery key"}
+          </button>
+          {confirmNewKey && (
+            <ConfirmModal
+              title={hasRecoveryKey ? "Replace the recovery key?" : "Generate recovery key?"}
+              body={hasRecoveryKey
+                ? "The old key stops working immediately. You'll see the new key once — store it safely."
+                : "You'll see the key once — store it safely (password manager or printed)."}
+              confirmLabel="Generate"
+              onClose={() => setConfirmNewKey(false)}
+              onConfirm={async () => setShownKey(await generateRecoveryKey())}
+            />
+          )}
+
+          <h3 style={{ margin: "14px 0 4px" }}>⏱ Auto sign-out</h3>
+          <div className="row">
+            <span className="grow hint">Sign out automatically after inactivity (shared PCs).</span>
+            <select
+              className="input"
+              style={{ width: 130 }}
+              value={idleLogoutMinutes}
+              onChange={(e) => {
+                const s = useStore.getState();
+                useStore.setState({ settings: { ...s.settings, idleLogoutMinutes: +e.target.value } });
+              }}
+            >
+              <option value={0}>Never</option>
+              <option value={15}>15 minutes</option>
+              <option value={30}>30 minutes</option>
+              <option value={60}>1 hour</option>
+            </select>
+          </div>
+        </>
+      )}
+
+      {shownKey && (
+        <Modal title="🔑 Your recovery key" onClose={() => setShownKey("")}>
+          <p className="hint">
+            Store this somewhere safe <b>outside ARIA</b> — it's shown only once and is the only way to reset
+            an admin password if everyone is locked out.
+          </p>
+          <div className="login-reckey">{shownKey}</div>
+          <div className="row" style={{ marginTop: 10 }}>
+            <button className="btn" onClick={async () => { try { await navigator.clipboard.writeText(shownKey); toast("Recovery key copied", "ok"); } catch { toast("Couldn't reach the clipboard — select the key and copy it by hand.", "err"); } }}>📋 Copy key</button>
+            <button className="btn primary" onClick={() => setShownKey("")}>I've stored it</button>
+          </div>
+        </Modal>
+      )}
 
       <hr className="divider" />
       <h3 style={{ margin: "0 0 4px" }}>🏢 Organisation profile</h3>

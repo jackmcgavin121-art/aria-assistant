@@ -77,6 +77,7 @@ export function defaultState(): AppState {
     settings: defaultSettings(),
     usage: {},
     accounts: [],
+    invites: [],
   };
 }
 
