@@ -120,6 +120,10 @@ $$;
 create or replace function public.redeem_invite (invite_code text, member_name text default null)
 returns table (org_id uuid, org_name text, role text)
 language plpgsql security definer set search_path = public as $$
+-- The OUT columns (org_id, role) collide with memberships' columns inside
+-- ON CONFLICT; prefer the table columns there. All variable reads below are
+-- qualified (inv.x / org.x), so this is unambiguous.
+#variable_conflict use_column
 declare
   inv  public.invites;
   org  public.organisations;
