@@ -22,6 +22,11 @@ export interface AriaBridge {
     has: (name: string) => Promise<boolean>;
     preview: (name: string) => Promise<string | null>;
   };
+  /** Cloud workspace session (the one secret the renderer may read back). */
+  cloudSession?: {
+    get: () => Promise<string | null>;
+    set: (value: string) => Promise<boolean>;
+  };
   api: {
     stream: (payload: unknown, handlers: StreamHandlers) => string;
     abort: (id: string) => Promise<boolean>;

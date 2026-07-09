@@ -108,6 +108,16 @@ export function installDevShim() {
         return v ? `${v.slice(0, 7)}…${v.slice(-4)}` : null;
       },
     },
+    cloudSession: {
+      get: async () => secrets().cloudSession ?? null,
+      set: async (value) => {
+        const s = secrets();
+        if (value) s.cloudSession = value;
+        else delete s.cloudSession;
+        localStorage.setItem(SECRETS_KEY, JSON.stringify(s));
+        return true;
+      },
+    },
     api: {
       stream: (payload, handlers) => {
         void doStream(payload, handlers);

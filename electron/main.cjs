@@ -314,6 +314,15 @@ function registerIpc() {
     return v.length <= 8 ? "••••" : `${v.slice(0, 7)}…${v.slice(-4)}`;
   });
 
+  // The cloud workspace session (Supabase refresh token) is the one secret
+  // the renderer may read back: it is scoped to the workspace directory, not
+  // to any API key, and the cloud client lives renderer-side.
+  ipcMain.handle("cloudSession:get", () => getSecret("cloudSession") || null);
+  ipcMain.handle("cloudSession:set", (_e, value) => {
+    setSecret("cloudSession", typeof value === "string" ? value : "");
+    return true;
+  });
+
   ipcMain.handle("api:stream:start", (e, id, payload) => {
     startAnthropicStream(e, String(id), payload);
     return true;

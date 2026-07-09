@@ -5,7 +5,7 @@
 // Conversations, tasks, and knowledge documents are NOT included — those
 // stay in full backups.
 import { useStore } from "../store/store";
-import type { Account, Agent, BusinessProfile, Invite, WorkspaceOrg } from "../types";
+import type { Account, Agent, BusinessProfile, CloudConfig, Invite, WorkspaceOrg } from "../types";
 import { uid } from "../lib/util";
 
 /** The agent fields that define who the agent is (its "bio") — no runtime state. */
@@ -36,6 +36,8 @@ export interface OrgProfileFile {
   accounts: Account[];
   /** Unused invite codes so a staff PC can redeem them (added v2.4). */
   invites?: Invite[];
+  /** Cloud workspace connection (URL + publishable anon key) so a staff PC is cloud-ready after one import. */
+  cloud?: CloudConfig;
   authEnabled: boolean;
 }
 
@@ -74,6 +76,7 @@ export async function exportOrgProfile(): Promise<void> {
     agents: s.agents.map(agentBio),
     accounts: s.accounts,
     invites: s.invites.filter((i) => !i.usedAt && i.expiresAt > Date.now()),
+    cloud: s.settings.cloud,
     authEnabled: !!s.settings.authEnabled,
   };
   const name = `aria-org-profile-${new Date().toISOString().slice(0, 10)}.json`;
@@ -134,6 +137,8 @@ export function importOrgProfile(data: any): { agentsUpdated: number; agentsAdde
       ...s.settings,
       // Only flip the login gate on when the file actually carries accounts.
       authEnabled: accounts.length ? !!data.authEnabled : s.settings.authEnabled,
+      // Never overwrite an existing cloud connection with an imported one.
+      cloud: s.settings.cloud ?? (data.cloud && data.cloud.url && data.cloud.anonKey ? data.cloud : undefined),
     },
   });
   return { agentsUpdated: updated, agentsAdded: fresh.length, accounts: accounts.length };

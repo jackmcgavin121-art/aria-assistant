@@ -5,6 +5,7 @@
 import { useStore } from "../store/store";
 import type { Account, Invite } from "../types";
 import { uid } from "./util";
+import { CloudOffline, cloudConfig, cloudSignIn, cloudSignUp, redeemCloudInvite, entitlementOk } from "./cloud";
 
 const PBKDF2_ITERATIONS = 120_000;
 const MIN_PASSWORD_LEN = 8;
@@ -101,6 +102,25 @@ export async function login(email: string, password: string, requireRole?: Accou
   if (!email.trim() || !password) return "Enter your email and password.";
   const locked = throttleCheck();
   if (locked) return locked;
+
+  // Cloud workspace: the server is the authority. It verifies the password,
+  // refreshes the entitlement, and updates the local mirror account. If it's
+  // unreachable, fall through to the mirror (within the offline grace).
+  if (cloudConfig()?.orgId) {
+    try {
+      const err = await cloudSignIn(email, password);
+      if (err) {
+        throttleFail();
+        return throttleCheck() ?? err;
+      }
+    } catch (e) {
+      if (!(e instanceof CloudOffline)) return String((e as Error).message ?? e);
+      const g = entitlementOk();
+      if (!g.ok) return g.reason!;
+      // offline + in grace → verify against the local mirror below
+    }
+  }
+
   const acc = findAccount(email);
   if (!acc) return "No account with that email — ask your administrator.";
   const { hash } = await hashPassword(password, acc.salt);
@@ -331,6 +351,26 @@ export async function redeemInvite(
   if (locked) return locked;
   const wanted = normCode(code);
   if (!wanted) return "Enter your invite code.";
+
+  // Cloud workspace: create the identity server-side and redeem there. No
+  // offline path here on purpose — joining a workspace needs the server.
+  if (cloudConfig()) {
+    try {
+      let err = await cloudSignUp(email, password, name);
+      if (err && /already (been )?registered/i.test(err)) err = await cloudSignIn(email, password);
+      if (err) return err; // includes "confirm the email" — a real instruction, stop here
+      await redeemCloudInvite(code, name);
+      // Full sign-in mirrors the account locally and caches the entitlement.
+      const err2 = await cloudSignIn(email, password);
+      if (err2) return err2;
+      const acc = findAccount(email);
+      if (acc) signIn(acc);
+      return null;
+    } catch (e) {
+      if (e instanceof CloudOffline) return "Joining a workspace needs an internet connection — try again online.";
+      return String((e as Error).message ?? e);
+    }
+  }
   const inv = useStore.getState().invites.find((i) => normCode(i.code) === wanted);
   if (!inv || inv.usedAt) {
     throttleFail();

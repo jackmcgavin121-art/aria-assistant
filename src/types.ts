@@ -357,6 +357,27 @@ export interface Settings {
   recoveryKey?: { salt: string; hash: string; createdAt: number };
   /** Failed-login throttle for this machine: escalating lockout after repeated wrong passwords. */
   loginThrottle?: { fails: number; lockedUntil: number };
+  /** Cloud workspace (Supabase project) this install is connected to. The anon key is publishable by design. */
+  cloud?: CloudConfig;
+  /** Last entitlement fetched from the cloud — cached so offline never bricks the app (14-day grace). */
+  cloudEntitlement?: CloudEntitlement;
+}
+
+/** Connection to a Supabase project acting as the workspace directory + licence authority. */
+export interface CloudConfig {
+  url: string; // https://<ref>.supabase.co
+  anonKey: string;
+  orgId?: string;
+  orgName?: string;
+}
+
+export interface CloudEntitlement {
+  plan: string; // "free" | "starter" | "business" …
+  status: string; // "active" | "past_due" | "cancelled"
+  seatLimit: number;
+  seatsUsed: number;
+  /** Last successful server check — the app works offline for 14 days from here. */
+  checkedAt: number;
 }
 
 /** Real token usage accumulated from API responses: month (YYYY-MM) → model → totals. */

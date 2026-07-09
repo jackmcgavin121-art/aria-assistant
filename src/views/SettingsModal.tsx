@@ -16,6 +16,21 @@ import {
   generateRecoveryKey,
 } from "../lib/auth";
 import { exportOrgProfile, importOrgProfile } from "../features/orgProfile";
+import {
+  connectCloud,
+  disconnectCloud,
+  getCloudSession,
+  cloudSignIn,
+  cloudSignUp,
+  createCloudOrg,
+  createCloudInvite,
+  listCloudInvites,
+  revokeCloudInvite,
+  listCloudMembers,
+  refreshEntitlement,
+  type CloudInvite,
+  type CloudMember,
+} from "../lib/cloud";
 
 const TABS = [
   { id: "profile", label: "Profile" },
@@ -406,6 +421,9 @@ function TeamAccessTab() {
       )}
 
       <hr className="divider" />
+      <CloudSection />
+
+      <hr className="divider" />
       <h3 style={{ margin: "0 0 4px" }}>🏢 Organisation profile</h3>
       <p className="hint">
         One file with your workspace org chart, business profile, all agents and their bios, and the login
@@ -425,6 +443,196 @@ function TeamAccessTab() {
           }
         }}>⬆ Import organisation profile</button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Cloud workspace (Supabase) management. Four states: not connected →
+ * connect form; connected but signed out → cloud sign-in/up; signed in
+ * without a workspace → create one; workspace live → status + invites +
+ * members. The cloud holds identity/licence only — data stays local.
+ */
+function CloudSection() {
+  const cloud = useStore((s) => s.settings.cloud);
+  const ent = useStore((s) => s.settings.cloudEntitlement);
+  const orgName0 = useStore((s) => s.workspace?.org ?? "");
+  const toast = useStore((s) => s.toast);
+  const [hasSession, setHasSession] = useState<boolean | null>(null);
+  const [url, setUrl] = useState("");
+  const [anonKey, setAnonKey] = useState("");
+  const [email, setEmail] = useState(useStore.getState().settings.lastLoginEmail ?? "");
+  const [pw, setPw] = useState("");
+  const [orgName, setOrgName] = useState(orgName0);
+  const [invites, setInvites] = useState<CloudInvite[]>([]);
+  const [members, setMembers] = useState<CloudMember[]>([]);
+  const [inviteRole, setInviteRole] = useState<"staff" | "admin">("staff");
+  const [inviteFor, setInviteFor] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
+
+  const refreshLists = async () => {
+    try {
+      const [inv, mem] = await Promise.all([listCloudInvites(), listCloudMembers()]);
+      setInvites(inv);
+      setMembers(mem);
+    } catch (e: any) {
+      toast(String(e.message ?? e), "err");
+    }
+  };
+
+  useEffect(() => {
+    if (!cloud) return;
+    void getCloudSession()
+      .then((s) => {
+        setHasSession(!!s);
+        if (s && cloud.orgId) void refreshLists();
+      })
+      .catch(() => setHasSession(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cloud?.url, cloud?.orgId]);
+
+  const run = async (fn: () => Promise<void>) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await fn();
+    } catch (e: any) {
+      toast(String(e.message ?? e), "err");
+    }
+    setBusy(false);
+  };
+
+  return (
+    <div>
+      <h3 style={{ margin: "0 0 4px" }}>
+        ☁️ Cloud workspace <span className="tag">beta</span>{" "}
+        {cloud?.orgId ? <span className="tag ok">connected</span> : cloud ? <span className="tag info">setting up</span> : null}
+      </h3>
+
+      {!cloud && (
+        <>
+          <p className="hint">
+            Optional upgrade from the org-profile file: a small server (your own free Supabase project) that
+            holds <b>logins and workspace membership only</b> — staff can join from any PC with just an invite
+            code, no file passing. Conversations and documents never leave this machine. Setup steps are in{" "}
+            <b>supabase/README.md</b> in the ARIA repository.
+          </p>
+          <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
+            <input className="input" style={{ flex: "2 1 220px" }} placeholder="https://yourproject.supabase.co" value={url} onChange={(e) => setUrl(e.target.value)} />
+            <input className="input" style={{ flex: "2 1 220px" }} type="password" placeholder="anon (publishable) key" value={anonKey} onChange={(e) => setAnonKey(e.target.value)} />
+            <button className="btn primary sm" disabled={busy || !url.trim() || !anonKey.trim()} onClick={() => void run(async () => {
+              const err = await connectCloud(url, anonKey);
+              if (err) toast(err, "err");
+              else { toast("Connected — now sign in or create your cloud account.", "ok"); setHasSession(false); }
+            })}>{busy ? "Checking…" : "Connect"}</button>
+          </div>
+        </>
+      )}
+
+      {cloud && hasSession === false && (
+        <>
+          <p className="hint">
+            Project: <b>{cloud.url.replace("https://", "")}</b>. Sign in with your cloud account (or create it) —
+            this is the identity staff will also use.
+          </p>
+          <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
+            <input className="input" style={{ flex: "1 1 170px" }} placeholder="email@company.com" value={email} onChange={(e) => setEmail(e.target.value)} />
+            <input className="input" style={{ flex: "1 1 140px" }} type="password" placeholder="Password (8+)" value={pw} onChange={(e) => setPw(e.target.value)} />
+            <button className="btn primary sm" disabled={busy || !email.trim() || !pw} onClick={() => void run(async () => {
+              const err = await cloudSignIn(email, pw);
+              if (err && !/not a member/.test(err)) { toast(err, "err"); return; }
+              setHasSession(true);
+              toast(err ? "Signed in — now create your workspace below." : "Signed in.", "ok");
+              if (!err) void refreshLists();
+            })}>Sign in</button>
+            <button className="btn sm" disabled={busy || !email.trim() || !pw} onClick={() => void run(async () => {
+              const err = await cloudSignUp(email, pw);
+              if (err) { toast(err, /confirm the email/.test(err) ? "info" : "err"); return; }
+              setHasSession(true);
+              toast("Cloud account created — now create your workspace below.", "ok");
+            })}>Create account</button>
+          </div>
+        </>
+      )}
+
+      {cloud && hasSession && !cloud.orgId && (
+        <>
+          <p className="hint">Signed in. Create the cloud workspace — you become its admin.</p>
+          <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
+            <input className="input" style={{ flex: "1 1 200px" }} placeholder="Workspace name" value={orgName} onChange={(e) => setOrgName(e.target.value)} />
+            <button className="btn primary sm" disabled={busy || !orgName.trim()} onClick={() => void run(async () => {
+              await createCloudOrg(orgName, useStore.getState().currentUser?.name);
+              toast("Cloud workspace created.", "ok");
+              void refreshLists();
+            })}>Create workspace</button>
+          </div>
+        </>
+      )}
+
+      {cloud?.orgId && (
+        <>
+          <p className="hint">
+            <b>{cloud.orgName ?? "Workspace"}</b> · plan <b>{ent?.plan ?? "free"}</b> ·{" "}
+            {ent ? `${ent.seatsUsed || members.length} of ${ent.seatLimit} seats` : "seats unknown"} ·{" "}
+            {ent ? `verified ${fmtDate(ent.checkedAt)}` : "not verified yet"}
+          </p>
+          <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
+            <input className="input" style={{ flex: "1 1 140px" }} placeholder="Invite is for… (optional)" value={inviteFor} onChange={(e) => setInviteFor(e.target.value)} />
+            <select className="input" style={{ width: 92 }} value={inviteRole} onChange={(e) => setInviteRole(e.target.value as "staff" | "admin")}>
+              <option value="staff">staff</option>
+              <option value="admin">admin</option>
+            </select>
+            <button className="btn primary sm" disabled={busy} onClick={() => void run(async () => {
+              const inv = await createCloudInvite(inviteRole, inviteFor);
+              setInviteFor("");
+              try { await navigator.clipboard.writeText(inv.code); toast(`Cloud invite ${inv.code} created and copied`, "ok"); }
+              catch { toast(`Cloud invite ${inv.code} created`, "ok"); }
+              void refreshLists();
+            })}>Create cloud invite</button>
+          </div>
+          {invites.map((i) => (
+            <div key={i.id} className="row" style={{ padding: "4px 0", gap: 8 }}>
+              <span className="grow">
+                <span style={{ fontFamily: "var(--mono)" }}>{i.code}</span>{" "}
+                <span className="hint">{i.role}{i.for_name ? ` · for ${i.for_name}` : ""} · expires {fmtDate(new Date(i.expires_at).getTime())}</span>
+              </span>
+              <button className="btn sm" onClick={async () => { try { await navigator.clipboard.writeText(i.code); toast("Code copied", "ok"); } catch { toast("Copy the code by hand.", "err"); } }}>Copy</button>
+              <button className="btn sm danger" onClick={() => void run(async () => { await revokeCloudInvite(i.id); void refreshLists(); })}>Revoke</button>
+            </div>
+          ))}
+          {members.length > 0 && (
+            <>
+              <h4 style={{ margin: "10px 0 4px" }}>Members</h4>
+              {members.map((m) => (
+                <div key={m.user_id} className="row" style={{ padding: "2px 0" }}>
+                  <span className="grow">{m.role === "admin" ? "🛡" : "👤"} {m.name || m.user_id.slice(0, 8)} <span className="hint">· {m.role} · {m.status}</span></span>
+                </div>
+              ))}
+            </>
+          )}
+          <div className="row" style={{ marginTop: 8 }}>
+            <button className="btn sm" disabled={busy} onClick={() => void run(async () => { await refreshEntitlement(); void refreshLists(); toast("Workspace verified.", "ok"); })}>🔄 Verify now</button>
+            <button className="btn sm danger" onClick={() => setConfirmDisconnect(true)}>Disconnect</button>
+          </div>
+        </>
+      )}
+
+      {cloud && !cloud.orgId && (
+        <div className="row" style={{ marginTop: 8 }}>
+          <button className="btn sm danger" onClick={() => setConfirmDisconnect(true)}>Disconnect</button>
+        </div>
+      )}
+
+      {confirmDisconnect && (
+        <ConfirmModal
+          title="Disconnect the cloud workspace?"
+          body="This PC goes back to file-based team access (local accounts and the organisation profile). Nothing is deleted from the server; you can reconnect later."
+          confirmLabel="Disconnect"
+          onClose={() => setConfirmDisconnect(false)}
+          onConfirm={() => void disconnectCloud().then(() => toast("Disconnected from the cloud workspace.", "ok"))}
+        />
+      )}
     </div>
   );
 }

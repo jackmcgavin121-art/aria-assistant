@@ -32,6 +32,10 @@ contextBridge.exposeInMainWorld("aria", {
     has: (name) => ipcRenderer.invoke("secret:has", name),
     preview: (name) => ipcRenderer.invoke("secret:preview", name),
   },
+  cloudSession: {
+    get: () => ipcRenderer.invoke("cloudSession:get"),
+    set: (value) => ipcRenderer.invoke("cloudSession:set", value),
+  },
   api: {
     stream: (payload, handlers) => {
       const id = "s" + ++streamSeq;

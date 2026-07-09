@@ -20,6 +20,7 @@ import { LoginScreen } from "./views/LoginScreen";
 import { Toasts } from "./components/Toasts";
 import { Modal } from "./components/Modal";
 import { logout } from "./lib/auth";
+import { entitlementOk, refreshEntitlement } from "./lib/cloud";
 import { initRecurringScheduler } from "./features/tasks";
 import { initProactiveChecks } from "./features/autonomy";
 import { activeTaskCount } from "./features/agentExec";
@@ -204,6 +205,8 @@ export default function App() {
   const firstRun = useStore(
     (s) => !s.settings.authEnabled && !s.settings.onboarded && !s.settings.authSetupDismissed && s.accounts.length === 0
   );
+  // Subscribed so a refreshed entitlement (new object) re-renders the gate.
+  useStore((s) => s.settings.cloudEntitlement);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", darkMode ? "dark" : "light");
@@ -252,6 +255,15 @@ export default function App() {
         useStore.setState({ settings: { ...s.settings, lastSeenVersion: info.version } });
       }
     });
+  }, [bootStatus]);
+
+  // Cloud workspace: refresh the cached entitlement after boot and twice a
+  // day. Failures keep the cache (14-day offline grace).
+  useEffect(() => {
+    if (bootStatus !== "ready") return;
+    void refreshEntitlement();
+    const t = window.setInterval(() => void refreshEntitlement(), 12 * 3600_000);
+    return () => window.clearInterval(t);
   }, [bootStatus]);
 
   // Idle auto sign-out (Settings → Team access). Any input resets the clock.
@@ -317,6 +329,13 @@ export default function App() {
     );
   }
 
+  // Cloud workspace out of standing (subscription ended / 14 days unverified):
+  // block with an honest explanation rather than silently degrading.
+  {
+    const ent = entitlementOk();
+    if (!ent.ok) return <EntitlementScreen reason={ent.reason!} />;
+  }
+
   if (portalAgentId) {
     return (
       <div className={compactMode ? "compact" : ""} style={{ height: "100%" }}>
@@ -350,6 +369,31 @@ export default function App() {
       {voiceOpen && <VoiceModal onClose={() => setVoiceOpen(false)} />}
       {shortcutsOpen && <ShortcutsModal onClose={() => setShortcutsOpen(false)} />}
       <Toasts />
+    </div>
+  );
+}
+
+function EntitlementScreen({ reason }: { reason: string }) {
+  const [checking, setChecking] = useState(false);
+  const retry = async () => {
+    setChecking(true);
+    await refreshEntitlement();
+    setChecking(false);
+  };
+  return (
+    <div className="empty-state">
+      <div className="big">🔒</div>
+      <h2>Workspace check needed</h2>
+      <p className="hint" style={{ maxWidth: 440 }}>{reason}</p>
+      <p className="hint" style={{ maxWidth: 440 }}>
+        Your data is safe on this PC — this only pauses the app until the workspace is verified.
+      </p>
+      <div className="row" style={{ justifyContent: "center" }}>
+        <button className="btn primary" disabled={checking} onClick={() => void retry()}>
+          {checking ? "Checking…" : "🔄 Check again"}
+        </button>
+        <button className="btn" onClick={logout}>Sign out</button>
+      </div>
     </div>
   );
 }
