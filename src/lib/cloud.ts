@@ -335,6 +335,34 @@ export async function revokeCloudInvite(id: string): Promise<void> {
   if (!res.ok) throw new Error(await errorMessage(res));
 }
 
+// ------------------------------------------------------------------ join links
+
+// A join link bundles the workspace connection + an invite code into one
+// string, so a brand-new PC can join with a single paste — no file passing.
+// Format: ARIA-JOIN-<base64url of {"u":projectUrl,"k":anonKey,"c":code}>.
+// The anon key is publishable by design; the code is single-use.
+
+export function makeJoinLink(code: string): string {
+  const cfg = cloudConfig();
+  if (!cfg) throw new Error("Connect a cloud workspace first.");
+  const payload = JSON.stringify({ u: cfg.url, k: cfg.anonKey, c: code });
+  return "ARIA-JOIN-" + btoa(payload).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+/** Decode a join link, or null when the text isn't one. */
+export function parseJoinLink(text: string): { url: string; anonKey: string; code: string } | null {
+  const m = text.trim().match(/^ARIA-JOIN-([A-Za-z0-9_-]+)$/);
+  if (!m) return null;
+  try {
+    const b64 = m[1].replace(/-/g, "+").replace(/_/g, "/");
+    const j = JSON.parse(atob(b64));
+    if (typeof j.u !== "string" || typeof j.k !== "string" || typeof j.c !== "string") return null;
+    return { url: j.u, anonKey: j.k, code: j.c };
+  } catch {
+    return null;
+  }
+}
+
 // ------------------------------------------------------------------ shared company setup
 
 /**

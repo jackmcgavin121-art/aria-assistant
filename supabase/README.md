@@ -39,10 +39,12 @@ the cloud connection, so a staff PC is cloud-ready after one import.
 ## Staff PCs
 
 1. Install ARIA, open it → the sign-in screen appears.
-2. **Staff → Import organisation profile…** (one time, file from the admin) —
-   or the admin can type the URL + key under Settings → Cloud workspace.
-3. **Join with an invite code** → pick a password → in. From then on they sign
-   in from any PC with just email + password; no more file passing.
+2. **Staff → Join with an invite code** → paste the **join link** the admin
+   copied next to the invite (it carries the workspace connection + the code
+   in one string) → pick a password → in. From then on they sign in from any
+   PC with just email + password; no file passing at all.
+3. Alternative for a plain code: import the organisation profile file first
+   (it carries the workspace connection), then enter the code.
 
 ## Shared company setup
 

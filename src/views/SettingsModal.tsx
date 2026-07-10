@@ -28,6 +28,7 @@ import {
   revokeCloudInvite,
   listCloudMembers,
   refreshEntitlement,
+  makeJoinLink,
   type CloudInvite,
   type CloudMember,
 } from "../lib/cloud";
@@ -598,6 +599,14 @@ function CloudSection() {
                 <span className="hint">{i.role}{i.for_name ? ` · for ${i.for_name}` : ""} · expires {fmtDate(new Date(i.expires_at).getTime())}</span>
               </span>
               <button className="btn sm" onClick={async () => { try { await navigator.clipboard.writeText(i.code); toast("Code copied", "ok"); } catch { toast("Copy the code by hand.", "err"); } }}>Copy</button>
+              <button
+                className="btn sm"
+                title="One string with the workspace connection + this code — works on a brand-new PC with nothing set up"
+                onClick={async () => {
+                  try { await navigator.clipboard.writeText(makeJoinLink(i.code)); toast("Join link copied — send it to the person; they paste it into “Join with an invite code”.", "ok"); }
+                  catch (e: any) { toast(String(e.message ?? e), "err"); }
+                }}
+              >Copy join link</button>
               <button className="btn sm danger" onClick={() => void run(async () => { await revokeCloudInvite(i.id); void refreshLists(); })}>Revoke</button>
             </div>
           ))}

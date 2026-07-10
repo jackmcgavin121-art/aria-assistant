@@ -5,7 +5,16 @@
 import { useStore } from "../store/store";
 import type { Account, Invite } from "../types";
 import { uid } from "./util";
-import { CloudOffline, cloudConfig, cloudSignIn, cloudSignUp, redeemCloudInvite, entitlementOk } from "./cloud";
+import {
+  CloudOffline,
+  cloudConfig,
+  cloudSignIn,
+  cloudSignUp,
+  redeemCloudInvite,
+  entitlementOk,
+  parseJoinLink,
+  connectCloud,
+} from "./cloud";
 
 const PBKDF2_ITERATIONS = 120_000;
 const MIN_PASSWORD_LEN = 8;
@@ -349,6 +358,18 @@ export async function redeemInvite(
 ): Promise<string | null> {
   const locked = throttleCheck();
   if (locked) return locked;
+
+  // A join link carries the workspace connection + the code in one string,
+  // so a brand-new PC can join without any prior setup or file.
+  const link = parseJoinLink(code);
+  if (link) {
+    if (!cloudConfig()) {
+      const err = await connectCloud(link.url, link.anonKey);
+      if (err) return err;
+    }
+    code = link.code;
+  }
+
   const wanted = normCode(code);
   if (!wanted) return "Enter your invite code.";
 

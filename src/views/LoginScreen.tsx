@@ -379,10 +379,10 @@ function StaffJoin({ onBack }: { onBack: () => void }) {
       <BackLink onBack={onBack} />
       <h3 style={{ margin: "0 0 4px" }}>🎟 Join with an invite code</h3>
       <p className="hint" style={{ margin: "0 0 10px" }}>
-        Your administrator gives you a code; you pick your own password.
+        Your administrator gives you a code or a join link; you pick your own password.
       </p>
-      <label className="label">Invite code</label>
-      <input className="input" autoFocus value={code} onChange={(e) => setCode(e.target.value)} placeholder="XXXX-XXXX" style={{ fontFamily: "var(--mono)", textTransform: "uppercase" }} />
+      <label className="label">Invite code or join link</label>
+      <input className="input" autoFocus value={code} onChange={(e) => setCode(e.target.value)} placeholder="XXXX-XXXX or ARIA-JOIN-…" style={{ fontFamily: "var(--mono)" }} />
       <label className="label">Your name</label>
       <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Sam" />
       <label className="label">Email</label>
