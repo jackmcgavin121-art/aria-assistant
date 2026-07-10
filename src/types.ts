@@ -361,6 +361,8 @@ export interface Settings {
   cloud?: CloudConfig;
   /** Last entitlement fetched from the cloud — cached so offline never bricks the app (14-day grace). */
   cloudEntitlement?: CloudEntitlement;
+  /** Server updated_at of the shared company setup this machine last applied/published. */
+  cloudProfileSyncedAt?: string;
 }
 
 /** Connection to a Supabase project acting as the workspace directory + licence authority. */

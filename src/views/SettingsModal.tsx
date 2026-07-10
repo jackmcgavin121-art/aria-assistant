@@ -15,7 +15,7 @@ import {
   revokeInvite,
   generateRecoveryKey,
 } from "../lib/auth";
-import { exportOrgProfile, importOrgProfile } from "../features/orgProfile";
+import { exportOrgProfile, importOrgProfile, publishCompanySetup, pullCompanySetup } from "../features/orgProfile";
 import {
   connectCloud,
   disconnectCloud,
@@ -611,6 +611,22 @@ function CloudSection() {
               ))}
             </>
           )}
+          <h4 style={{ margin: "12px 0 4px" }}>Shared company setup</h4>
+          <p className="hint">
+            Publishing shares the <b>business framework</b> — agents and their instructions, business profile,
+            org chart — with every member's ARIA (pulled automatically at sign-in). Conversations, documents,
+            tasks and learnings are <b>never</b> included; confidential data stays on each PC.
+          </p>
+          <div className="row" style={{ flexWrap: "wrap" }}>
+            <button className="btn sm primary" disabled={busy} onClick={() => void run(async () => {
+              await publishCompanySetup();
+              toast("Company setup published to the workspace.", "ok");
+            })}>⬆ Publish company setup</button>
+            <button className="btn sm" disabled={busy} onClick={() => void run(async () => {
+              const applied = await pullCompanySetup();
+              toast(applied ? "Company setup updated from the workspace." : "Already up to date.", "ok");
+            })}>⬇ Pull latest</button>
+          </div>
           <div className="row" style={{ marginTop: 8 }}>
             <button className="btn sm" disabled={busy} onClick={() => void run(async () => { await refreshEntitlement(); void refreshLists(); toast("Workspace verified.", "ok"); })}>🔄 Verify now</button>
             <button className="btn sm danger" onClick={() => setConfirmDisconnect(true)}>Disconnect</button>

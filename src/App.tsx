@@ -21,6 +21,7 @@ import { Toasts } from "./components/Toasts";
 import { Modal } from "./components/Modal";
 import { logout } from "./lib/auth";
 import { entitlementOk, refreshEntitlement } from "./lib/cloud";
+import { pullCompanySetup } from "./features/orgProfile";
 import { initRecurringScheduler } from "./features/tasks";
 import { initProactiveChecks } from "./features/autonomy";
 import { activeTaskCount } from "./features/agentExec";
@@ -257,14 +258,21 @@ export default function App() {
     });
   }, [bootStatus]);
 
-  // Cloud workspace: refresh the cached entitlement after boot and twice a
-  // day. Failures keep the cache (14-day offline grace).
+  // Cloud workspace: refresh the cached entitlement and pull the shared
+  // company setup after boot, after each sign-in, and twice a day. Failures
+  // keep the caches (14-day offline grace).
   useEffect(() => {
     if (bootStatus !== "ready") return;
-    void refreshEntitlement();
-    const t = window.setInterval(() => void refreshEntitlement(), 12 * 3600_000);
+    const sync = async () => {
+      await refreshEntitlement();
+      if (await pullCompanySetup()) {
+        useStore.getState().toast("Company setup updated from your workspace.", "info");
+      }
+    };
+    void sync();
+    const t = window.setInterval(() => void sync(), 12 * 3600_000);
     return () => window.clearInterval(t);
-  }, [bootStatus]);
+  }, [bootStatus, currentUser?.email]);
 
   // Idle auto sign-out (Settings → Team access). Any input resets the clock.
   const idleLogoutMinutes = useStore((s) => s.settings.idleLogoutMinutes ?? 0);

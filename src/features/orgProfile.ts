@@ -7,6 +7,7 @@
 import { useStore } from "../store/store";
 import type { Account, Agent, BusinessProfile, CloudConfig, Invite, WorkspaceOrg } from "../types";
 import { uid } from "../lib/util";
+import { publishSharedProfile, fetchSharedProfile } from "../lib/cloud";
 
 /** The agent fields that define who the agent is (its "bio") — no runtime state. */
 type AgentBio = Pick<
@@ -95,26 +96,7 @@ export function importOrgProfile(data: any): { agentsUpdated: number; agentsAdde
   }
   const s = useStore.getState();
 
-  const incoming: AgentBio[] = Array.isArray(data.agents) ? data.agents.filter((a: any) => a && a.name) : [];
-  let updated = 0;
-  const agents: Agent[] = s.agents.map((a) => {
-    const match = incoming.find((b) => b.name.toLowerCase() === a.name.toLowerCase());
-    if (!match) return a;
-    updated++;
-    return { ...a, ...match };
-  });
-  const fresh = incoming.filter((b) => !s.agents.some((a) => a.name.toLowerCase() === b.name.toLowerCase()));
-  for (const b of fresh) {
-    agents.push({
-      id: uid(),
-      published: false,
-      goals: [],
-      taskQueue: [],
-      memory: { learnings: [], patterns: "", gaps: [] },
-      workday: { startedAt: Date.now(), tasksCompleted: [], initiativesStarted: [], learningsDiscovered: [], blockers: [] },
-      ...b,
-    });
-  }
+  const { agents, updated, added } = mergeAgentBios(s.agents, data.agents);
 
   const accounts: Account[] = Array.isArray(data.accounts)
     ? data.accounts.filter((a: any) => a && a.email && a.passHash && a.salt)
@@ -141,5 +123,88 @@ export function importOrgProfile(data: any): { agentsUpdated: number; agentsAdde
       cloud: s.settings.cloud ?? (data.cloud && data.cloud.url && data.cloud.anonKey ? data.cloud : undefined),
     },
   });
-  return { agentsUpdated: updated, agentsAdded: fresh.length, accounts: accounts.length };
+  return { agentsUpdated: updated, agentsAdded: added, accounts: accounts.length };
+}
+
+/** Merge imported agent bios into the local roster: match by name, keep runtime state, add new ones fresh. */
+function mergeAgentBios(local: Agent[], incomingRaw: any): { agents: Agent[]; updated: number; added: number } {
+  const incoming: AgentBio[] = Array.isArray(incomingRaw) ? incomingRaw.filter((a: any) => a && a.name) : [];
+  let updated = 0;
+  const agents: Agent[] = local.map((a) => {
+    const match = incoming.find((b) => b.name.toLowerCase() === a.name.toLowerCase());
+    if (!match) return a;
+    updated++;
+    return { ...a, ...match };
+  });
+  const fresh = incoming.filter((b) => !local.some((a) => a.name.toLowerCase() === b.name.toLowerCase()));
+  for (const b of fresh) {
+    agents.push({
+      id: uid(),
+      published: false,
+      goals: [],
+      taskQueue: [],
+      memory: { learnings: [], patterns: "", gaps: [] },
+      workday: { startedAt: Date.now(), tasksCompleted: [], initiativesStarted: [], learningsDiscovered: [], blockers: [] },
+      ...b,
+    });
+  }
+  return { agents, updated, added: fresh.length };
+}
+
+// ---------------------------------------------------------------------------
+// Cloud-shared company setup (business framework only).
+//
+// THE CONFIDENTIALITY LINE: what syncs is the stuff an admin authored about
+// the company — workspace org chart, business profile, agent bios. What is
+// NEVER synced: conversations/messages, knowledge documents, tasks, company
+// memory / agent learnings (chat-derived), usage, accounts or password
+// hashes, invites. Those stay on each person's machine.
+
+interface SharedProfile {
+  ariaSharedProfile: 1;
+  workspace: WorkspaceOrg | null;
+  businessProfile: BusinessProfile;
+  agents: AgentBio[];
+}
+
+function buildSharedProfile(): SharedProfile {
+  const s = useStore.getState();
+  return {
+    ariaSharedProfile: 1,
+    workspace: s.workspace,
+    businessProfile: s.businessProfile,
+    agents: s.agents.map(agentBio),
+  };
+}
+
+/** Admin: publish the current company setup to the cloud workspace. */
+export async function publishCompanySetup(): Promise<void> {
+  const updatedAt = await publishSharedProfile(buildSharedProfile());
+  const s = useStore.getState();
+  useStore.setState({ settings: { ...s.settings, cloudProfileSyncedAt: updatedAt } });
+}
+
+/**
+ * Member: pull the workspace's company setup and apply it when newer than
+ * what this machine last applied. Quiet no-op offline or when unchanged.
+ * Returns true when something new was applied.
+ */
+export async function pullCompanySetup(): Promise<boolean> {
+  let remote: { data: any; updatedAt: string } | null;
+  try {
+    remote = await fetchSharedProfile();
+  } catch {
+    return false; // offline or signed out — try again next cycle
+  }
+  if (!remote || !remote.data || remote.data.ariaSharedProfile !== 1) return false;
+  const s = useStore.getState();
+  if (s.settings.cloudProfileSyncedAt && remote.updatedAt <= s.settings.cloudProfileSyncedAt) return false;
+  const { agents } = mergeAgentBios(s.agents, remote.data.agents);
+  useStore.setState({
+    agents,
+    workspace: remote.data.workspace ?? s.workspace,
+    businessProfile: { ...s.businessProfile, ...(remote.data.businessProfile ?? {}) },
+    settings: { ...s.settings, cloudProfileSyncedAt: remote.updatedAt },
+  });
+  return true;
 }

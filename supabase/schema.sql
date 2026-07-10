@@ -39,6 +39,17 @@ create table if not exists public.invites (
   used_at     timestamptz
 );
 
+-- Shared company setup (business framework only: agents' bios, business
+-- profile, org chart). Published by admins, pulled by every member's ARIA.
+-- Deliberately NEVER contains conversations, documents, tasks, learnings,
+-- password hashes or anything chat-derived — that data stays on each PC.
+create table if not exists public.org_profiles (
+  org_id      uuid primary key references public.organisations (id) on delete cascade,
+  data        jsonb not null,
+  updated_at  timestamptz not null default now(),
+  updated_by  uuid not null references auth.users (id)
+);
+
 -- ---------------------------------------------------------------- helpers
 
 -- SECURITY DEFINER so RLS policies can ask "is this caller an admin of org X"
@@ -64,6 +75,19 @@ $$;
 alter table public.organisations enable row level security;
 alter table public.memberships  enable row level security;
 alter table public.invites      enable row level security;
+alter table public.org_profiles enable row level security;
+
+drop policy if exists org_profiles_select on public.org_profiles;
+create policy org_profiles_select on public.org_profiles
+  for select using (public.is_org_member(org_id));
+
+drop policy if exists org_profiles_admin_insert on public.org_profiles;
+create policy org_profiles_admin_insert on public.org_profiles
+  for insert with check (public.is_org_admin(org_id));
+
+drop policy if exists org_profiles_admin_update on public.org_profiles;
+create policy org_profiles_admin_update on public.org_profiles
+  for update using (public.is_org_admin(org_id));
 
 drop policy if exists org_select on public.organisations;
 create policy org_select on public.organisations

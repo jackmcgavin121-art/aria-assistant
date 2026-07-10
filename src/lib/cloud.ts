@@ -335,6 +335,43 @@ export async function revokeCloudInvite(id: string): Promise<void> {
   if (!res.ok) throw new Error(await errorMessage(res));
 }
 
+// ------------------------------------------------------------------ shared company setup
+
+/**
+ * Publish the shared company setup (business framework only — the caller is
+ * responsible for never passing chat-derived or credential data here).
+ */
+export async function publishSharedProfile(data: unknown): Promise<string> {
+  const cfg = cloudConfig();
+  if (!cfg?.orgId) throw new Error("Create or join a cloud workspace first.");
+  const sess = await getCloudSession();
+  if (!sess) throw new Error("Your cloud session expired — sign in again.");
+  const updatedAt = new Date().toISOString();
+  const res = await http(cfg, "/rest/v1/org_profiles", {
+    method: "POST",
+    token: sess.accessToken,
+    headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+    body: JSON.stringify({ org_id: cfg.orgId, data, updated_at: updatedAt, updated_by: sess.userId }),
+  });
+  if (!res.ok) throw new Error(await errorMessage(res));
+  return updatedAt;
+}
+
+/** The workspace's shared company setup, or null when none was published yet. */
+export async function fetchSharedProfile(): Promise<{ data: any; updatedAt: string } | null> {
+  const cfg = cloudConfig();
+  if (!cfg?.orgId) return null;
+  const sess = await getCloudSession();
+  if (!sess) return null;
+  const res = await http(cfg, `/rest/v1/org_profiles?org_id=eq.${cfg.orgId}&select=data,updated_at`, {
+    method: "GET",
+    token: sess.accessToken,
+  });
+  if (!res.ok) throw new Error(await errorMessage(res));
+  const rows = await res.json();
+  return rows[0] ? { data: rows[0].data, updatedAt: rows[0].updated_at } : null;
+}
+
 // ------------------------------------------------------------------ entitlement
 
 /**

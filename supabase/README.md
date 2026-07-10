@@ -44,6 +44,15 @@ the cloud connection, so a staff PC is cloud-ready after one import.
 3. **Join with an invite code** → pick a password → in. From then on they sign
    in from any PC with just email + password; no more file passing.
 
+## Shared company setup
+
+Admins can **publish the company setup** (Settings → Team access → Cloud
+workspace): agents and their instructions, business profile, and the org
+chart. Every member's ARIA pulls it automatically at sign-in and twice a day.
+The confidentiality line is hard-coded: conversations, documents, tasks,
+learnings, accounts and password hashes are **never** part of the published
+payload — confidential data stays on each PC.
+
 ## How it behaves offline
 
 Every successful sign-in caches the account and the workspace's status
