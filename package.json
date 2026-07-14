@@ -1,6 +1,6 @@
 {
   "name": "aria-assistant",
-  "version": "2.4.2",
+  "version": "2.4.3",
   "description": "ARIA — AI Business Assistant",
   "main": "electron/main.cjs",
   "author": "",
