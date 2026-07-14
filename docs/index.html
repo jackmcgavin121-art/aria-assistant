@@ -152,14 +152,28 @@
     <li><label><input type="checkbox"><span class="t">Click <b>⬆ Publish company setup</b> — this shares your AI agents and business info with the team automatically.</span></label></li>
   </ol>
 
-  <h2>✉️ Invite someone</h2>
+  <h2>✉️ Adding a person: what to give them</h2>
+  <p>Every new team member needs exactly <b>two things</b> from you:</p>
   <p class="progress" data-progress></p>
   <ol class="steps">
-    <li><label><input type="checkbox"><span class="t">In the same Cloud workspace section, create an invite (choose <i>staff</i>) and click <b>Copy join link</b>.</span></label></li>
-    <li><label><input type="checkbox"><span class="t">Send them two things: this guide's link and the join link. That's all they need.</span></label></li>
+    <li><label><input type="checkbox"><span class="t"><b>A join link.</b> In <span class="path">Settings → Team access → Cloud workspace</span>, create an invite (choose <i>staff</i>) and click <b>Copy join link</b>. Send it with this guide's link — text or email is fine. Each link works once and expires after 7 days.</span></label></li>
+    <li><label><input type="checkbox"><span class="t"><b>An AI key on their computer.</b> Either they get their own at <a href="https://console.anthropic.com">console.anthropic.com</a> (they pay for their own usage), or you type your company key into their ARIA once — <span class="path">Settings → AI &amp; API</span> on <i>their</i> PC (shared bill). The key is a real secret: type it in person rather than messaging it.</span></label></li>
   </ol>
-  <p class="muted">Join links work once and expire after 7 days — make a fresh one per person.</p>
+  <p>They choose their own password when they join — you never need to know it.</p>
+
+  <h3>Every key and code, at a glance</h3>
+  <div class="tablewrap">
+  <table>
+    <tr><th>Thing</th><th>Looks like</th><th>Who gets it</th><th>How secret?</th></tr>
+    <tr><td><b>Join link</b></td><td><code>ARIA-JOIN-…</code></td><td>One per new person</td><td>OK to text/email — works once, expires in 7 days</td></tr>
+    <tr><td><b>AI key</b></td><td><code>sk-ant-…</code></td><td>Every PC that uses ARIA</td><td><b>Secret.</b> Type it in yourself; never message it. Rotate it at console.anthropic.com if it leaks or someone leaves</td></tr>
+    <tr><td><b>Recovery key</b></td><td><code>ARIA-XXXX-…</code></td><td><b>Only you.</b> Never share</td><td><b>Most secret.</b> Your spare key if all admin passwords are lost — keep it offline</td></tr>
+    <tr><td><b>Workspace URL + key</b></td><td><code>https://….supabase.co</code></td><td>Only you, once, at setup</td><td>Designed to be safe if seen — and join links carry it automatically, so you never send it separately</td></tr>
+    <tr><td><b>Passwords</b></td><td>—</td><td>Everyone picks their own</td><td>You never need anyone's password; you can reset staff passwords in Settings</td></tr>
+  </table>
+  </div>
   <div class="note"><b>Finally: turn the login screen on.</b> <span class="path">Settings → Team access → Turn login on</span>. From then on ARIA asks who's signing in when it opens.</div>
+  <div class="note warn"><b>If someone leaves:</b> remove their account in <span class="path">Settings → Team access</span>, and if they were using your company AI key, rotate it at console.anthropic.com and update the PCs that share it.</div>
 </section>
 
 <!-- ============================ STAFF -->
@@ -290,7 +304,10 @@
   });
   function updateProgress() {
     document.querySelectorAll("[data-progress]").forEach(function (p) {
-      var list = p.parentElement.querySelector("ol.steps") || p.nextElementSibling;
+      // The checklist this counter belongs to is the next ol.steps AFTER it,
+      // not the first one in the section (sections can hold several lists).
+      var list = p.nextElementSibling;
+      while (list && !(list.tagName === "OL" && list.classList.contains("steps"))) list = list.nextElementSibling;
       if (!list) return;
       var all = list.querySelectorAll("input[type=checkbox]");
       var done = list.querySelectorAll("input:checked").length;
