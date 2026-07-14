@@ -1,5 +1,7 @@
 # ARIA — AI Business Assistant
 
+**[⬇ Download for Windows](https://github.com/jackmcgavin121-art/aria-assistant/releases/latest)** · **[📘 Setup & user guide](https://jackmcgavin121-art.github.io/aria-assistant/)**
+
 Installable Windows 11 desktop app: chat with a roster of specialist AI agents, assign
 them real tasks they complete via the Anthropic API, organise work into projects, keep a
 local knowledge base / mini-CRM, and get proactive alerts. Local-first: all data lives on

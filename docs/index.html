@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ARIA — Setup &amp; User Guide</title>
+<style>
+  :root {
+    --ac: #4f46e5; --ac-soft: #eef0ff; --ac-line: #d6d9f8;
+    --bg: #fdfdfe; --bg2: #f4f5fa; --tx: #23253a; --tx2: #5b5e78; --bd: #e3e5f0;
+    --ok: #15803d; --ok-bg: #f0fdf4; --warn: #b45309; --warn-bg: #fffbeb;
+    --mono: "Cascadia Code", Consolas, ui-monospace, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ac: #8d86ff; --ac-soft: #232145; --ac-line: #3b3870;
+      --bg: #16171f; --bg2: #1e1f2b; --tx: #e8e8f2; --tx2: #a2a4bd; --bd: #32344a;
+      --ok: #4ade80; --ok-bg: #12281a; --warn: #fbbf24; --warn-bg: #2b2210;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ac: #8d86ff; --ac-soft: #232145; --ac-line: #3b3870;
+    --bg: #16171f; --bg2: #1e1f2b; --tx: #e8e8f2; --tx2: #a2a4bd; --bd: #32344a;
+    --ok: #4ade80; --ok-bg: #12281a; --warn: #fbbf24; --warn-bg: #2b2210;
+  }
+  :root[data-theme="light"] {
+    --ac: #4f46e5; --ac-soft: #eef0ff; --ac-line: #d6d9f8;
+    --bg: #fdfdfe; --bg2: #f4f5fa; --tx: #23253a; --tx2: #5b5e78; --bd: #e3e5f0;
+    --ok: #15803d; --ok-bg: #f0fdf4; --warn: #b45309; --warn-bg: #fffbeb;
+  }
+  body { background: var(--bg); color: var(--tx); font-family: "Segoe UI", system-ui, -apple-system, sans-serif; line-height: 1.65; margin: 0; }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 48px 24px 96px; }
+  header.hero { border-bottom: 1px solid var(--bd); padding-bottom: 28px; margin-bottom: 40px; }
+  .logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 15px; letter-spacing: 2.5px; color: var(--tx2); }
+  .logo .dot { width: 11px; height: 11px; border-radius: 50%; background: var(--ac); }
+  h1 { font-size: 34px; line-height: 1.2; margin: 14px 0 8px; text-wrap: balance; letter-spacing: -0.5px; }
+  .sub { color: var(--tx2); font-size: 16px; margin: 0; max-width: 60ch; }
+  h2 { font-size: 22px; margin: 52px 0 6px; letter-spacing: -0.3px; text-wrap: balance; }
+  h2 .k { color: var(--ac); font-variant-numeric: tabular-nums; margin-right: 6px; }
+  h3 { font-size: 16px; margin: 26px 0 6px; }
+  p, li { color: var(--tx); font-size: 15px; }
+  p { margin: 8px 0; }
+  .muted { color: var(--tx2); font-size: 13.5px; }
+  a { color: var(--ac); }
+  code, .code { font-family: var(--mono); font-size: 13px; background: var(--bg2); border: 1px solid var(--bd); border-radius: 6px; padding: 1px 6px; overflow-wrap: anywhere; }
+  .path { font-weight: 600; }
+  .dl { display: flex; flex-wrap: wrap; gap: 12px; margin: 18px 0 6px; }
+  .btn { display: inline-block; background: var(--ac); color: #fff; text-decoration: none; font-weight: 600; font-size: 15px; padding: 12px 22px; border-radius: 8px; }
+  :root[data-theme="dark"] .btn, .btn { color: #fff; }
+  .btn.ghost { background: transparent; color: var(--ac); border: 1px solid var(--ac-line); }
+  ol.steps { padding-left: 0; margin: 14px 0; list-style: none; counter-reset: step; }
+  ol.steps > li { counter-increment: step; position: relative; padding: 0 0 18px 44px; }
+  ol.steps > li::before {
+    content: counter(step); position: absolute; left: 0; top: 1px;
+    width: 26px; height: 26px; border-radius: 50%; background: var(--ac-soft); color: var(--ac);
+    border: 1px solid var(--ac-line); font-weight: 700; font-size: 13px;
+    display: flex; align-items: center; justify-content: center; font-variant-numeric: tabular-nums;
+  }
+  ol.steps > li:not(:last-child)::after { content: ""; position: absolute; left: 13px; top: 30px; bottom: 2px; width: 1px; background: var(--ac-line); }
+  .note { border: 1px solid var(--bd); border-left: 3px solid var(--ac); background: var(--bg2); border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 16px 0; font-size: 14px; }
+  .note.warn { border-left-color: var(--warn); background: var(--warn-bg); }
+  .note.ok { border-left-color: var(--ok); background: var(--ok-bg); }
+  .note b:first-child { display: block; margin-bottom: 2px; }
+  .role { display: inline-block; font-size: 11.5px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; padding: 3px 10px; border-radius: 99px; margin-right: 6px; }
+  .role.admin { background: var(--ac-soft); color: var(--ac); border: 1px solid var(--ac-line); }
+  .role.staff { background: var(--ok-bg); color: var(--ok); border: 1px solid var(--bd); }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; margin: 12px 0; }
+  th { text-align: left; color: var(--tx2); font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.8px; padding: 8px 10px; border-bottom: 2px solid var(--bd); }
+  td { padding: 9px 10px; border-bottom: 1px solid var(--bd); vertical-align: top; }
+  td:first-child { white-space: nowrap; }
+  .tablewrap { overflow-x: auto; }
+  kbd { font-family: var(--mono); font-size: 12px; background: var(--bg2); border: 1px solid var(--bd); border-bottom-width: 2px; border-radius: 5px; padding: 1px 7px; white-space: nowrap; }
+  .toc { background: var(--bg2); border: 1px solid var(--bd); border-radius: 10px; padding: 16px 22px; margin: 26px 0 0; }
+  .toc ul { margin: 6px 0 2px; padding-left: 18px; columns: 2; column-gap: 30px; }
+  .toc li { font-size: 14px; padding: 2px 0; break-inside: avoid; }
+  .toc .lbl { font-size: 11.5px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: var(--tx2); }
+  @media (max-width: 560px) { .toc ul { columns: 1; } h1 { font-size: 28px; } }
+  footer { margin-top: 64px; padding-top: 18px; border-top: 1px solid var(--bd); color: var(--tx2); font-size: 13px; }
+</style>
+</head>
+<body>
+
+
+<div class="wrap">
+<header class="hero">
+  <div class="logo"><span class="dot"></span>ARIA</div>
+  <h1>Setup &amp; User Guide</h1>
+  <p class="sub">ARIA is your AI business assistant — specialist agents that chat, complete assigned tasks, and keep your company knowledge. It runs on your own computer; your data stays with you.</p>
+  <div class="dl">
+    <a class="btn" href="https://github.com/jackmcgavin121-art/aria-assistant/releases/latest/download/ARIA-Setup-2.4.2.exe">⬇&nbsp; Download ARIA for Windows</a>
+    <a class="btn ghost" href="https://github.com/jackmcgavin121-art/aria-assistant/releases">All versions &amp; release notes</a>
+  </div>
+  <p class="muted">Windows 10/11, 64-bit. ARIA updates itself automatically after installation — you only download once.</p>
+  <nav class="toc">
+    <span class="lbl">In this guide</span>
+    <ul>
+      <li><a href="#install">Install ARIA</a></li>
+      <li><a href="#admin">Set up as the administrator</a></li>
+      <li><a href="#cloud">Set up the cloud workspace</a></li>
+      <li><a href="#staff">Join as a staff member</a></li>
+      <li><a href="#daily">Using ARIA day to day</a></li>
+      <li><a href="#privacy">What's shared, what's private</a></li>
+      <li><a href="#accounts">Passwords, keys &amp; safety</a></li>
+      <li><a href="#trouble">Troubleshooting</a></li>
+    </ul>
+  </nav>
+</header>
+
+<h2 id="install"><span class="k">1</span>Install ARIA</h2>
+<ol class="steps">
+  <li>Download the installer with the button above and run it.</li>
+  <li>Windows may show a blue <b>"Windows protected your PC"</b> screen the first time (the app isn't code-signed yet). Click <b>More info → Run anyway</b>.</li>
+  <li>Follow the installer. ARIA opens when it finishes.</li>
+</ol>
+<p>On first launch ARIA asks who you are: <span class="role admin">Administrator</span> sets up a workspace for a team, <span class="role staff">Staff</span> joins one that already exists. Working alone? Choose <i>"It's just me on this PC — skip logins"</i> and jump to <a href="#daily">Using ARIA</a>.</p>
+
+<h2 id="admin"><span class="k">2</span>Set up as the administrator</h2>
+<p><span class="role admin">Admin</span> The administrator manages accounts, invites, company setup and API keys. Staff get the day-to-day app.</p>
+<ol class="steps">
+  <li>On the first screen choose <b>Administrator → Set up this workspace</b>.</li>
+  <li>Enter your company name, your name, email, and a password (8+ characters).</li>
+  <li>ARIA shows your <b>recovery key</b> (looks like <code>ARIA-XXXX-XXXX-XXXX-XXXX</code>). Copy it and store it somewhere safe <b>outside ARIA</b> — a password manager or a printed copy.</li>
+  <li>Complete onboarding: paste your <b>Anthropic API key</b> (from <a href="https://console.anthropic.com">console.anthropic.com</a> → API keys). It's stored encrypted on your machine and only ever sent to Anthropic.</li>
+</ol>
+<div class="note warn"><b>The recovery key is shown once.</b> If every admin password is forgotten, this key is the only way back in. You can generate a new one any time in <span class="path">Settings → Team access</span>.</div>
+
+<h2 id="cloud"><span class="k">3</span>Set up the cloud workspace</h2>
+<p><span class="role admin">Admin</span> The cloud workspace lets your team sign in from their own computers with just an email and password — no file passing. It stores <b>logins, membership and your shared company setup only</b>; conversations and documents never leave each PC.</p>
+<ol class="steps">
+  <li>Create a free project at <a href="https://supabase.com">supabase.com</a> and run the schema — the full walkthrough is in <a href="https://github.com/jackmcgavin121-art/aria-assistant/blob/master/supabase/README.md">supabase/README.md</a> (about 10 minutes, one time only).</li>
+  <li>In ARIA open <span class="path">Settings → Team access → Cloud workspace</span>, paste the project URL and anon key, and click <b>Connect</b>.</li>
+  <li><b>Create account</b> — your cloud identity (can be the same email as your local login).</li>
+  <li><b>Create workspace</b> — you become its admin.</li>
+  <li>Click <b>⬆ Publish company setup</b> — this shares your agents, business profile and org chart with every member automatically.</li>
+</ol>
+<p>To bring someone in: create an invite in the same section (choose <i>staff</i> or <i>admin</i>), then click <b>Copy join link</b> and send it to them however you like — message, email, sticky note. Invites are single-use and expire after 7 days.</p>
+
+<h2 id="staff"><span class="k">4</span>Join as a staff member</h2>
+<p><span class="role staff">Staff</span> You need the <b>join link</b> (or invite code) from your administrator.</p>
+<ol class="steps">
+  <li><a href="https://github.com/jackmcgavin121-art/aria-assistant/releases/latest/download/ARIA-Setup-2.4.2.exe">Download</a> and install ARIA on your own computer.</li>
+  <li>On the first screen choose <b>Staff → Join with an invite code</b>.</li>
+  <li>Paste the join link (starts with <code>ARIA-JOIN-…</code>), enter your name and email, and choose your own password (8+ characters).</li>
+  <li>You're in. Your company's agents and business profile arrive automatically within a few seconds.</li>
+</ol>
+<p>From now on, sign in with just your email and password — on this PC or any other one with ARIA installed. Your conversations stay on your machine and are yours alone.</p>
+
+<h2 id="daily"><span class="k">5</span>Using ARIA day to day</h2>
+<h3>💬 Chat</h3>
+<p>The heart of ARIA. Pick an agent from the dropdown at the top (each has its own role, personality and expertise) and talk to it like a colleague. Attach files, paste screenshots, or press 🎤 for voice. Type <code>/</code> at the start of a message for quick commands: <code>/task</code> creates a task, <code>/remember</code> saves a fact to company memory, <code>/research</code> runs web research, <code>/artifact</code> drafts a document.</p>
+<h3>🤖 Agents</h3>
+<p>Your AI team. Create or edit agents in the <b>Agents</b> view — give them instructions, expertise and an autonomy level. Agents can execute assigned tasks on their own, raise alerts when goals stall, and write weekly reports. The <b>Agent Hub</b> assigns work; <b>Workload</b> shows who's doing what.</p>
+<h3>☑️ Tasks &amp; projects</h3>
+<p><b>Tasks</b> tracks to-dos (with recurring schedules); <b>Projects</b> groups related conversations and artifacts. Assign a task to an agent and it gets done — with research when web research is enabled.</p>
+<h3>📚 Knowledge</h3>
+<p>Upload documents and notes the agents should know: price lists, processes, product specs. Agents reference them automatically in answers.</p>
+<h3>🏠 Dashboard</h3>
+<p>Your morning view: open tasks, unread alerts, agents at work, and recent conversations.</p>
+<div class="tablewrap">
+<table>
+  <tr><th>Shortcut</th><th>Does</th></tr>
+  <tr><td><kbd>Ctrl K</kbd></td><td>Search everything / command palette</td></tr>
+  <tr><td><kbd>Ctrl P</kbd></td><td>Switch between recent conversations</td></tr>
+  <tr><td><kbd>Ctrl F</kbd></td><td>Find inside the open conversation</td></tr>
+  <tr><td><kbd>Ctrl 1–8</kbd></td><td>Jump to a view (Home, Chat, Agents…)</td></tr>
+  <tr><td><kbd>Ctrl B</kbd></td><td>Collapse the sidebar</td></tr>
+  <tr><td><kbd>Ctrl /</kbd></td><td>Full shortcut cheat-sheet</td></tr>
+</table>
+</div>
+
+<h2 id="privacy"><span class="k">6</span>What's shared, what's private</h2>
+<div class="tablewrap">
+<table>
+  <tr><th>Shared with your team (via the cloud)</th><th>Private to each computer</th></tr>
+  <tr><td>Agents and their instructions</td><td>Conversations and chat history</td></tr>
+  <tr><td>Business profile</td><td>Knowledge documents</td></tr>
+  <tr><td>Org chart / workspace structure</td><td>Tasks, projects, artifacts</td></tr>
+  <tr><td>Who belongs to the workspace (logins)</td><td>Agent learnings from chats</td></tr>
+</table>
+</div>
+<div class="note ok"><b>The line is enforced in the software, not by policy.</b> The published company setup physically cannot contain conversations, documents, tasks or passwords. If it's confidential, it stays on the PC where it was created.</div>
+<p>ARIA also snapshots your data automatically once a day (7 newest kept). Find them via <span class="path">Settings → Data → Open backups folder</span>, and make manual copies with <b>Export backup</b> before big changes.</p>
+
+<h2 id="accounts"><span class="k">7</span>Passwords, keys &amp; safety</h2>
+<ul>
+  <li><b>Forgot a staff password?</b> Any admin resets it: <span class="path">Settings → Team access → Reset password</span>. With the cloud workspace, staff can also be re-invited.</li>
+  <li><b>Every admin locked out?</b> On the sign-in screen: <b>Administrator → Locked out? Use your recovery key</b>. The key is single-use — generate a fresh one afterwards.</li>
+  <li><b>Wrong password too many times?</b> After 5 attempts ARIA enforces a short wait that doubles each try (max 15 minutes). Just wait it out.</li>
+  <li><b>Working offline?</b> Everything keeps working. With a cloud workspace, sign-in falls back to a secure local copy for up to 14 days without a connection.</li>
+  <li><b>Shared computer?</b> Turn on auto sign-out: <span class="path">Settings → Team access → Auto sign-out</span>.</li>
+</ul>
+
+<h2 id="trouble"><span class="k">8</span>Troubleshooting</h2>
+<div class="tablewrap">
+<table>
+  <tr><th>Problem</th><th>Fix</th></tr>
+  <tr><td>Windows blocks the installer</td><td>Click <b>More info → Run anyway</b> (unsigned app, expected).</td></tr>
+  <tr><td>"Couldn't read your saved data" at startup</td><td>Use the on-screen <b>Restore latest automatic backup</b> button — a copy of the broken file is kept either way.</td></tr>
+  <tr><td>Invite code "isn't valid"</td><td>Codes are single-use and expire in 7 days — ask the admin for a fresh <b>join link</b>.</td></tr>
+  <tr><td>App seems out of date</td><td><span class="path">Settings → About → Check for updates now</span>. Updates also install automatically within hours.</td></tr>
+  <tr><td>Agent replies fail with an error</td><td>Check the Anthropic API key in <span class="path">Settings → AI &amp; API</span> and your internet connection.</td></tr>
+  <tr><td>Want a fresh start</td><td><span class="path">Settings → Data → Export backup</span> first, then <b>Wipe all data</b>.</td></tr>
+</table>
+</div>
+
+<footer>
+  ARIA · local-first AI business assistant · <a href="https://github.com/jackmcgavin121-art/aria-assistant/releases">Releases &amp; changelog</a> · Guide covers v2.4.2
+</footer>
+</div>
+
+</body>
+</html>

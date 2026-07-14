@@ -86,6 +86,12 @@ function Chooser({ onAdmin, onStaff }: { onAdmin: () => void; onStaff: () => voi
           <span className="hint">Sign in or join with an invite code</span>
         </button>
       </div>
+      <p className="hint" style={{ textAlign: "center", marginTop: 12, marginBottom: 0 }}>
+        New here?{" "}
+        <a href="#" onClick={(e) => { e.preventDefault(); void window.aria.app.openExternal("https://jackmcgavin121-art.github.io/aria-assistant/"); }}>
+          Read the setup guide
+        </a>
+      </p>
       {/* First-run only: solo users can opt out of logins entirely. */}
       {!authEnabled && (
         <p className="hint" style={{ textAlign: "center", marginTop: 12 }}>

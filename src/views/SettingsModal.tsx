@@ -696,6 +696,9 @@ function AboutTab() {
         <button className="btn" disabled={checking} onClick={() => void checkNow()}>
           {checking ? "Checking…" : "🔄 Check for updates now"}
         </button>
+        <button className="btn" onClick={() => void window.aria.app.openExternal("https://jackmcgavin121-art.github.io/aria-assistant/")}>
+          📘 Setup &amp; user guide
+        </button>
         <button className="btn" onClick={() => void window.aria.app.openExternal("https://github.com/jackmcgavin121-art/aria-assistant/releases")}>
           📋 Release notes
         </button>
